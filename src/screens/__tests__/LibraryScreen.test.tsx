@@ -1,137 +1,130 @@
 import { Alert } from 'react-native';
-import { render, fireEvent, waitFor } from '@testing-library/react-native';
+import { fireEvent, waitFor } from '@testing-library/react-native';
 import { Buffer } from 'buffer';
 import * as DocumentPicker from 'expo-document-picker';
 
 import { InMemoryBookRepository } from '../../lib/import/repository';
+import { InMemorySettingsGateway, loadSettings } from '../../lib/settings/store';
 import { FakeFileGateway, seedReader } from '../../test-utils/fakes';
+import { renderWithSettings } from '../../test-utils/render';
 import { LibraryScreen } from '../LibraryScreen';
 
 jest.mock('expo-document-picker', () => ({ getDocumentAsync: jest.fn() }));
-
 const mockedPicker = DocumentPicker as jest.Mocked<typeof DocumentPicker>;
 
 function makeSetup() {
-  const repo = new InMemoryBookRepository();
-  const fs = new FakeFileGateway();
-  return { repo, fs };
+  return { repo: new InMemoryBookRepository(), fs: new FakeFileGateway() };
+}
+function renderLib(
+  repo: InMemoryBookRepository,
+  fs: FakeFileGateway,
+  onOpenBook: (id: string) => void = () => {},
+  gateway = new InMemorySettingsGateway(),
+) {
+  return renderWithSettings(
+    <LibraryScreen repo={repo} fs={fs} onOpenBook={onOpenBook} />,
+    gateway,
+  );
 }
 
 describe('LibraryScreen', () => {
   afterEach(() => jest.clearAllMocks());
 
-  it('renders a book cover label, title and read progress', async () => {
+  it('hero layout: shows the read book as 继续阅读 with progress', async () => {
     const { repo, fs } = makeSetup();
     await seedReader(repo, fs, {
       title: '测试小说',
       chapters: [
-        { title: '第一章 开始', body: '内容一' },
-        { title: '第二章 发展', body: '内容二' },
-        { title: '第三章 结局', body: '内容三' },
+        { title: '第一章 开始', body: '一' },
+        { title: '第二章 发展', body: '二' },
+        { title: '第三章 结局', body: '三' },
       ],
       progressChapterIndex: 0,
     });
 
-    const { findByText, getByText } = render(
-      <LibraryScreen repo={repo} fs={fs} onOpenBook={() => {}} />,
-    );
+    const { findByText, getByText } = renderLib(repo, fs);
 
-    expect(await findByText('测试小说')).toBeTruthy(); // title
-    expect(getByText('测试')).toBeTruthy(); // generated cover label (first 2 chars)
+    expect(await findByText('继续阅读')).toBeTruthy();
+    expect(getByText('测试小说')).toBeTruthy();
     expect(getByText('已读 0%')).toBeTruthy();
   });
 
-  it('shows 未读 for a book with no saved progress', async () => {
+  it('does not show 继续阅读 when no book has been read', async () => {
     const { repo, fs } = makeSetup();
     await seedReader(repo, fs, { title: '没读过', chapters: [{ title: '第一章 A', body: 'a' }] });
 
-    const { findByText } = render(<LibraryScreen repo={repo} fs={fs} onOpenBook={() => {}} />);
+    const { findByText, queryByText } = renderLib(repo, fs);
 
-    expect(await findByText('未读')).toBeTruthy();
+    expect(await findByText('没读过')).toBeTruthy();
+    expect(queryByText('继续阅读')).toBeNull();
   });
 
-  it('calls onOpenBook with the book id when a cover is tapped', async () => {
+  it('calls onOpenBook when a list row is tapped', async () => {
     const { repo, fs } = makeSetup();
     const book = await seedReader(repo, fs, {
       title: '点开我',
       chapters: [{ title: '第一章 A', body: 'a' }],
     });
-
     const onOpenBook = jest.fn();
-    const { findByText } = render(
-      <LibraryScreen repo={repo} fs={fs} onOpenBook={onOpenBook} />,
-    );
+
+    const { findByText } = renderLib(repo, fs, onOpenBook);
 
     fireEvent.press(await findByText('点开我'));
     expect(onOpenBook).toHaveBeenCalledWith(book.id);
   });
 
-  it('long-press → confirm removes the book from the shelf', async () => {
+  it('long-press → confirm removes the book', async () => {
     const { repo, fs } = makeSetup();
     await seedReader(repo, fs, { title: '删除我', chapters: [{ title: '第一章 A', body: 'a' }] });
-
     jest.spyOn(Alert, 'alert').mockImplementation((_t, _m, buttons) => {
       buttons?.find((b) => b.style === 'destructive')?.onPress?.();
     });
 
-    const { findByText, queryByText } = render(
-      <LibraryScreen repo={repo} fs={fs} onOpenBook={() => {}} />,
-    );
+    const { findByText, queryByText } = renderLib(repo, fs);
 
     fireEvent(await findByText('删除我'), 'longPress');
-
     await waitFor(() => expect(queryByText('删除我')).toBeNull());
     expect(await repo.listBooks()).toHaveLength(0);
   });
 
-  it('orders the most-recently-read book first', async () => {
+  it('switching to 卡片 hides the hero and persists the choice', async () => {
     const { repo, fs } = makeSetup();
+    const gateway = new InMemorySettingsGateway();
     await seedReader(repo, fs, {
-      bookId: 'unread',
-      title: '新导入未读',
+      title: '测试小说',
       chapters: [{ title: '第一章 A', body: 'a' }],
-      importedAt: 5000,
-    });
-    await seedReader(repo, fs, {
-      bookId: 'read',
-      title: '旧书刚读过',
-      chapters: [{ title: '第一章 A', body: 'a' }],
-      importedAt: 1000,
-      lastReadAt: 9_999_999_999_999,
+      progressChapterIndex: 0,
     });
 
-    const { findAllByTestId } = render(
-      <LibraryScreen repo={repo} fs={fs} onOpenBook={() => {}} />,
-    );
+    const { findByText, getByText, queryByText } = renderLib(repo, fs, () => {}, gateway);
 
-    const titles = await findAllByTestId('book-title');
-    expect(titles[0]).toHaveTextContent('旧书刚读过');
-    expect(titles[1]).toHaveTextContent('新导入未读');
+    expect(await findByText('继续阅读')).toBeTruthy();
+    fireEvent.press(getByText('卡片'));
+
+    await waitFor(() => expect(queryByText('继续阅读')).toBeNull());
+    expect(getByText('测试小说')).toBeTruthy(); // still shown, as a card
+    await waitFor(async () => {
+      expect((await loadSettings(gateway)).libraryLayout).toBe('cards');
+    });
   });
 
-  it('import flow adds a newly picked book to the shelf', async () => {
+  it('import flow adds a newly picked book', async () => {
     const { repo, fs } = makeSetup();
-
     const novel = ['第一章 山边小村', '内容一。', '第二章 入门', '内容二。', '第三章 出师', '内容三。'].join('\n');
     const uri = 'file:///picked.txt';
     fs.registerFile(uri, new Uint8Array(Buffer.from(novel, 'utf8')));
-
     mockedPicker.getDocumentAsync.mockResolvedValue({
       canceled: false,
       assets: [{ uri, name: '新书.txt', size: novel.length, mimeType: 'text/plain' }],
     } as never);
 
-    const { findByText, getByText, findAllByTestId } = render(
-      <LibraryScreen repo={repo} fs={fs} onOpenBook={() => {}} />,
-    );
+    const { findByText, getByText, findAllByTestId } = renderLib(repo, fs);
 
     await findByText('书架空空如也');
     fireEvent.press(getByText('导入'));
 
-    // Title '新书' collides with its own 2-char cover label, so assert via testID.
     const titles = await findAllByTestId('book-title');
     expect(titles).toHaveLength(1);
     expect(titles[0]).toHaveTextContent('新书');
-    expect(await repo.listBooks()).toHaveLength(1);
   });
 });

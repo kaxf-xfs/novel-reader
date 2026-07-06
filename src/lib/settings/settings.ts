@@ -30,6 +30,10 @@ export type FontId = 'cangEr' | 'system' | 'systemSerif';
 export const THEME_IDS: readonly ThemeId[] = ['dark', 'black', 'paper', 'sepia', 'green'];
 export const FONT_IDS: readonly FontId[] = ['cangEr', 'system', 'systemSerif'];
 
+/** Bookshelf layout: `hero` = continue-reading card + list; `cards` = card grid-list. */
+export type LibraryLayout = 'hero' | 'cards';
+export const LIBRARY_LAYOUTS: readonly LibraryLayout[] = ['hero', 'cards'];
+
 // ---------------------------------------------------------------------------
 // Settings shape
 // ---------------------------------------------------------------------------
@@ -45,6 +49,8 @@ export interface ReaderSettings {
   /** Horizontal page padding in px. */
   marginH: number;
   themeId: ThemeId;
+  /** Bookshelf layout style. */
+  libraryLayout: LibraryLayout;
 }
 
 // ---------------------------------------------------------------------------
@@ -73,6 +79,7 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   paragraphSpacing: 14,
   marginH: 24,
   themeId: 'dark',
+  libraryLayout: 'hero',
 };
 
 // ---------------------------------------------------------------------------
@@ -104,5 +111,6 @@ export function sanitizeSettings(patch: Partial<ReaderSettings>): ReaderSettings
     ),
     marginH: clampNumber(patch.marginH, MARGIN_BOUNDS, DEFAULT_SETTINGS.marginH),
     themeId: pickEnum(patch.themeId, THEME_IDS, DEFAULT_SETTINGS.themeId),
+    libraryLayout: pickEnum(patch.libraryLayout, LIBRARY_LAYOUTS, DEFAULT_SETTINGS.libraryLayout),
   };
 }

@@ -51,6 +51,12 @@ describe('sanitizeSettings', () => {
     );
   });
 
+  it('defaults libraryLayout to hero and rejects unknown values', () => {
+    expect(sanitizeSettings({}).libraryLayout).toBe('hero');
+    expect(sanitizeSettings({ libraryLayout: 'cards' }).libraryLayout).toBe('cards');
+    expect(sanitizeSettings({ libraryLayout: 'grid' as never }).libraryLayout).toBe('hero');
+  });
+
   it('ignores non-numeric values and keeps the default', () => {
     expect(sanitizeSettings({ fontSize: NaN }).fontSize).toBe(DEFAULT_SETTINGS.fontSize);
     expect(
