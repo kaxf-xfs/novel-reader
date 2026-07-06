@@ -69,7 +69,30 @@ jobs:
       - name: Package unsigned IPA
         working-directory: ios
         run: |
-          APP_PATH=$(find build/Build/Products/Release-iphoneos -maxdepth 1 -name "*.app")
+          # Ask Xcode exactly where the built .app lives (robust across Xcode versions)
+          SETTINGS=$(xcodebuild \
+            -workspace "${{ steps.detect.outputs.workspace }}" \
+            -scheme "${{ steps.detect.outputs.scheme }}" \
+            -configuration Release -sdk iphoneos -derivedDataPath build \
+            -showBuildSettings 2>/dev/null)
+          BUILD_DIR=$(echo "$SETTINGS" | awk -F' = ' '/ TARGET_BUILD_DIR =/{print $2; exit}')
+          WRAPPER=$(echo "$SETTINGS" | awk -F' = ' '/ WRAPPER_NAME =/{print $2; exit}')
+          APP_PATH="$BUILD_DIR/$WRAPPER"
+          echo "TARGET_BUILD_DIR=$BUILD_DIR"
+          echo "WRAPPER_NAME=$WRAPPER"
+
+          if [ -z "$WRAPPER" ] || [ ! -d "$APP_PATH" ]; then
+            echo "Resolved path not found, falling back to search…"
+            APP_PATH=$(find build ~/Library/Developer/Xcode/DerivedData -type d -name "*.app" -path "*Release-iphoneos*" 2>/dev/null | head -n 1)
+          fi
+          echo "Using APP_PATH=$APP_PATH"
+
+          if [ -z "$APP_PATH" ] || [ ! -d "$APP_PATH" ]; then
+            echo "ERROR: could not locate built .app. Candidates:"
+            find build ~/Library/Developer/Xcode/DerivedData -type d -name "*.app" 2>/dev/null
+            exit 1
+          fi
+
           mkdir -p Payload
           cp -r "$APP_PATH" Payload/
           zip -r unsigned.ipa Payload
