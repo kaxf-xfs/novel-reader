@@ -58,6 +58,10 @@ export interface SeedReaderOptions {
   chapters: SeedChapter[];
   /** If set, saves reading progress at this chapter index. */
   progressChapterIndex?: number;
+  /** Override the book's import time (default 1_700_000_000_000). */
+  importedAt?: number;
+  /** Progress updatedAt / last-read time; presence implies a progress record. */
+  lastReadAt?: number;
 }
 
 /**
@@ -98,13 +102,14 @@ export async function seedReader(
   const bytes = new Uint8Array(Buffer.from(fullText, 'utf8'));
   fs.registerFile(normalizedPath, bytes);
 
+  const importedAt = opts.importedAt ?? 1_700_000_000_000;
   const book: BookRecord = {
     id: bookId,
     title,
     originalName: `${title}.txt`,
     encoding: 'utf-8',
     sizeBytes: bytes.length,
-    importedAt: 1_700_000_000_000,
+    importedAt,
     coverColor: '#8899aa',
     strategy: 'regex',
     normalizedPath,
@@ -112,12 +117,12 @@ export async function seedReader(
 
   await repo.addBook(book);
   await repo.addChapters(bookId, chapterRecords);
-  if (opts.progressChapterIndex != null) {
+  if (opts.progressChapterIndex != null || opts.lastReadAt != null) {
     await repo.saveProgress({
       bookId,
-      chapterIndex: opts.progressChapterIndex,
+      chapterIndex: opts.progressChapterIndex ?? 0,
       charOffset: 0,
-      updatedAt: 1_700_000_000_000,
+      updatedAt: opts.lastReadAt ?? importedAt,
     });
   }
 

@@ -1,6 +1,8 @@
 /**
- * T4: LibraryScreen — lists imported books, lets the user import new .txt
- * files, and navigates into the reader.
+ * T4/T6: LibraryScreen — the bookshelf. Lists imported books as a 2-column
+ * grid of generated covers, sorted most-recently-read first, with per-book
+ * progress and last-read time. Import (top-right) adds a .txt; long-press a
+ * cover to delete.
  */
 
 import { useCallback, useEffect, useState } from 'react';
@@ -19,6 +21,9 @@ import { importBook } from '../lib/import/importBook';
 import type { FileGateway } from '../lib/import/importBook';
 import type { BookRecord, BookRepository } from '../lib/import/repository';
 import { chapterProgressPercent } from '../lib/reader/progress';
+import { buildCover } from '../lib/library/cover';
+import { sortByRecent } from '../lib/library/sort';
+import { formatRelativeTime } from '../lib/library/time';
 
 interface LibraryScreenProps {
   repo: BookRepository;
@@ -30,11 +35,13 @@ interface BookListItem {
   book: BookRecord;
   totalChapters: number;
   progressPercent: number | null;
+  importedAt: number;
+  lastReadAt: number | null;
 }
 
 async function loadLibraryItems(repo: BookRepository): Promise<BookListItem[]> {
   const books = await repo.listBooks();
-  return Promise.all(
+  const items = await Promise.all(
     books.map(async (book) => {
       const [chapters, progress] = await Promise.all([
         repo.getChapters(book.id),
@@ -44,9 +51,22 @@ async function loadLibraryItems(repo: BookRepository): Promise<BookListItem[]> {
       const progressPercent = progress
         ? chapterProgressPercent(progress.chapterIndex, totalChapters)
         : chapterProgressPercent(0, totalChapters);
-      return { book, totalChapters, progressPercent };
+      return {
+        book,
+        totalChapters,
+        progressPercent,
+        importedAt: book.importedAt,
+        lastReadAt: progress ? progress.updatedAt : null,
+      };
     }),
   );
+  return sortByRecent(items);
+}
+
+function progressLabel(item: BookListItem): string {
+  if (item.progressPercent === null) return '未分章';
+  if (item.lastReadAt === null) return '未读';
+  return `已读 ${item.progressPercent}%`;
 }
 
 export function LibraryScreen({ repo, fs, onOpenBook }: LibraryScreenProps) {
@@ -105,6 +125,42 @@ export function LibraryScreen({ repo, fs, onOpenBook }: LibraryScreenProps) {
     }
   }, [fs, repo, reload]);
 
+  const renderItem = useCallback(
+    ({ item }: { item: BookListItem }) => {
+      const cover = buildCover(item.book.title, item.book.coverColor);
+      const pct = item.progressPercent ?? 0;
+      return (
+        <Pressable
+          style={({ pressed }) => [styles.cell, pressed && styles.pressed]}
+          onPress={() => onOpenBook(item.book.id)}
+          onLongPress={() => handleDelete(item.book)}
+          delayLongPress={400}
+        >
+          <View style={[styles.cover, { backgroundColor: cover.background }]}>
+            <Text style={[styles.coverLabel, { color: cover.textColor }]} numberOfLines={2}>
+              {cover.label}
+            </Text>
+          </View>
+          <View style={styles.progressTrack}>
+            <View style={[styles.progressFill, { width: `${pct}%` }]} />
+          </View>
+          <Text testID="book-title" style={styles.bookTitle} numberOfLines={2}>
+            {item.book.title}
+          </Text>
+          <Text style={styles.bookMeta} numberOfLines={1}>
+            {progressLabel(item)}
+          </Text>
+          {item.lastReadAt !== null && (
+            <Text style={styles.bookSubMeta} numberOfLines={1}>
+              {formatRelativeTime(item.lastReadAt)}
+            </Text>
+          )}
+        </Pressable>
+      );
+    },
+    [onOpenBook, handleDelete],
+  );
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -135,33 +191,17 @@ export function LibraryScreen({ repo, fs, onOpenBook }: LibraryScreenProps) {
         <FlatList
           data={items}
           keyExtractor={(item) => item.book.id}
+          numColumns={2}
+          columnWrapperStyle={styles.row}
           contentContainerStyle={styles.list}
-          renderItem={({ item }) => (
-            <Pressable
-              style={({ pressed }) => [styles.bookRow, pressed && styles.pressed]}
-              onPress={() => onOpenBook(item.book.id)}
-              onLongPress={() => handleDelete(item.book)}
-              delayLongPress={400}
-            >
-              <View style={[styles.cover, { backgroundColor: item.book.coverColor }]} />
-              <View style={styles.bookInfo}>
-                <Text style={styles.bookTitle} numberOfLines={1}>
-                  {item.book.title}
-                </Text>
-                <Text style={styles.bookMeta}>
-                  {item.totalChapters > 0 ? `${item.totalChapters} 章` : '未分章'}
-                  {' · '}
-                  {item.book.strategy}
-                  {item.progressPercent !== null ? ` · ${item.progressPercent}%` : ''}
-                </Text>
-              </View>
-            </Pressable>
-          )}
+          renderItem={renderItem}
         />
       )}
     </View>
   );
 }
+
+const COVER_ASPECT = 3 / 4;
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#15171c', paddingTop: 64 },
@@ -189,9 +229,26 @@ const styles = StyleSheet.create({
   emptyText: { color: '#8b8f99', fontSize: 18, marginBottom: 8 },
   emptyHint: { color: '#4a4e57', fontSize: 13 },
   list: { paddingHorizontal: 20, paddingBottom: 40 },
-  bookRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14 },
-  cover: { width: 44, height: 60, borderRadius: 6, marginRight: 14 },
-  bookInfo: { flex: 1 },
-  bookTitle: { color: '#f5f3ee', fontSize: 17, fontWeight: '500', marginBottom: 4 },
-  bookMeta: { color: '#8b8f99', fontSize: 13 },
+  row: { gap: 16 },
+  cell: { flex: 1, marginBottom: 22, maxWidth: '50%' },
+  cover: {
+    width: '100%',
+    aspectRatio: COVER_ASPECT,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 12,
+  },
+  coverLabel: { fontSize: 34, fontWeight: '700', letterSpacing: 2, textAlign: 'center' },
+  progressTrack: {
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: '#2a2d35',
+    marginTop: 10,
+    overflow: 'hidden',
+  },
+  progressFill: { height: 3, borderRadius: 2, backgroundColor: '#8b8f99' },
+  bookTitle: { color: '#f5f3ee', fontSize: 15, fontWeight: '500', marginTop: 8 },
+  bookMeta: { color: '#8b8f99', fontSize: 12, marginTop: 3 },
+  bookSubMeta: { color: '#5a5e68', fontSize: 11, marginTop: 1 },
 });
