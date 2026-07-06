@@ -11,10 +11,15 @@ on:
 
 jobs:
   build-unsigned-ipa:
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Select Xcode (RN 0.86 / Expo SDK 57 requires Xcode >= 16.1)
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -26,7 +31,9 @@ jobs:
         run: npm ci
 
       - name: Expo prebuild (generate native iOS project)
-        run: npx expo prebuild --platform ios --clean --non-interactive
+        run: npx expo prebuild --platform ios --clean
+        env:
+          CI: '1'
 
       - name: Install CocoaPods dependencies
         working-directory: ios
