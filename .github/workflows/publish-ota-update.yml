@@ -1,0 +1,43 @@
+name: Publish OTA Update (EAS Update)
+
+# 日常纯 JS/TS 迭代：push 到 main → 在 CI 里跑 eas update 发布 OTA。
+# 已安装的 App 下次冷启动自动拉取新 JS bundle，无需 GitHub Actions 原生重建、无需插线重签。
+#
+# 前置（一次性，见 docs/EAS_UPDATE_SETUP.md）：
+#   1. 本地 `eas init` + `eas update:configure` 写入 projectId 与 updates.url
+#   2. 在 Expo 生成一个访问令牌，存到本仓库 GitHub Secrets 的 EXPO_TOKEN
+#
+# 在 CI 里发布可保证 runtimeVersion(fingerprint) 与原生构建环境一致。
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - '.github/workflows/build-unsigned-ipa.yml'
+
+jobs:
+  publish-ota:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Publish update to production channel
+        run: eas update --branch production --message "${{ github.event.head_commit.message || 'manual OTA' }}" --non-interactive

@@ -1,0 +1,77 @@
+name: Build Unsigned iOS IPA
+
+# 免费无 Mac 装机链路的「编译」环节：GitHub Actions macOS runner 产出未签名 .ipa。
+# 签名/安装在 Windows 本地用 Sideloadly + 免费 Apple ID 完成（见 docs/ios_sideload_route.md）。
+# 不需要任何 Apple 相关的 GitHub Secrets。
+
+# 手动触发：原生重建是刻意行为（新增/升级原生模块、改 app.json 原生配置、升级 SDK 时才需要）。
+# 日常纯 JS/TS 改动由 publish-ota-update.yml 走 EAS Update OTA，无需重建/重签。
+on:
+  workflow_dispatch:
+
+jobs:
+  build-unsigned-ipa:
+    runs-on: macos-14
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: Expo prebuild (generate native iOS project)
+        run: npx expo prebuild --platform ios --clean --non-interactive
+
+      - name: Install CocoaPods dependencies
+        working-directory: ios
+        run: pod install --repo-update
+
+      - name: Detect workspace and scheme
+        id: detect
+        working-directory: ios
+        run: |
+          WORKSPACE=$(ls -d *.xcworkspace | head -n 1)
+          SCHEME=$(xcodebuild -workspace "$WORKSPACE" -list \
+            | awk '/Schemes:/{flag=1;next}/^$/{flag=0}flag' \
+            | sed 's/^[ \t]*//' | head -n 1)
+          echo "workspace=$WORKSPACE" >> $GITHUB_OUTPUT
+          echo "scheme=$SCHEME" >> $GITHUB_OUTPUT
+          echo "Detected workspace: $WORKSPACE, scheme: $SCHEME"
+
+      - name: Build unsigned .app (no code signing)
+        working-directory: ios
+        run: |
+          xcodebuild clean build \
+            -workspace "${{ steps.detect.outputs.workspace }}" \
+            -scheme "${{ steps.detect.outputs.scheme }}" \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            PROVISIONING_PROFILE_SPECIFIER=""
+
+      - name: Package unsigned IPA
+        working-directory: ios
+        run: |
+          APP_PATH=$(find build/Build/Products/Release-iphoneos -maxdepth 1 -name "*.app")
+          mkdir -p Payload
+          cp -r "$APP_PATH" Payload/
+          zip -r unsigned.ipa Payload
+          mkdir -p ../output
+          mv unsigned.ipa ../output/
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-ipa
+          path: output/unsigned.ipa
+          retention-days: 14
