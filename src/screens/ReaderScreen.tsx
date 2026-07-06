@@ -121,13 +121,30 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
     }
   }, []);
 
-  const onSurfaceTouchEnd = useCallback(() => {
-    const start = touchStartRef.current;
-    touchStartRef.current = null;
-    if (start && !touchMovedRef.current && Date.now() - start.t < 300) {
-      setChromeVisible((v) => !v);
-    }
-  }, []);
+  const onSurfaceTouchEnd = useCallback(
+    (e: GestureResponderEvent) => {
+      const start = touchStartRef.current;
+      touchStartRef.current = null;
+      if (!start) return;
+
+      // Tap (no drag, quick) → toggle chrome.
+      if (!touchMovedRef.current && Date.now() - start.t < 300) {
+        setChromeVisible((v) => !v);
+        return;
+      }
+
+      // Left-edge rightward swipe → back to the shelf (iOS-style).
+      const end = e.nativeEvent.changedTouches[0];
+      if (end) {
+        const dx = end.pageX - start.x;
+        const dy = end.pageY - start.y;
+        if (start.x < 40 && dx > 60 && dx > Math.abs(dy) * 2) {
+          onBack();
+        }
+      }
+    },
+    [onBack],
+  );
 
   // Load a fresh window centered on `index`; shared by initial load and jumps.
   const loadWindow = useCallback(

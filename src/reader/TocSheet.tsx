@@ -39,9 +39,6 @@ export function TocSheet({ visible, chapters, currentIndex, onSelect, onClose }:
       <View testID="toc-sheet" style={[styles.container, { backgroundColor: theme.background }]}>
         <View style={[styles.header, { borderBottomColor: theme.border }]}>
           <Text style={[styles.title, { color: theme.heading }]}>目录</Text>
-          <Pressable onPress={onClose} hitSlop={12}>
-            <Text style={[styles.close, { color: theme.subtle }]}>关闭</Text>
-          </Pressable>
         </View>
 
         <TextInput
@@ -54,6 +51,7 @@ export function TocSheet({ visible, chapters, currentIndex, onSelect, onClose }:
         />
 
         <FlatList
+          style={styles.list}
           data={filtered}
           keyExtractor={(item) => `${item.index}`}
           keyboardShouldPersistTaps="handled"
@@ -86,6 +84,17 @@ export function TocSheet({ visible, chapters, currentIndex, onSelect, onClose }:
             <Text style={[styles.empty, { color: theme.subtle }]}>没有匹配的章节</Text>
           }
         />
+
+        <Pressable
+          style={({ pressed }) => [
+            styles.closeBar,
+            { borderTopColor: theme.border },
+            pressed && styles.pressed,
+          ]}
+          onPress={onClose}
+        >
+          <Text style={[styles.closeBarText, { color: theme.text }]}>关闭</Text>
+        </Pressable>
       </View>
     </Modal>
   );
@@ -102,7 +111,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   title: { fontSize: 20, fontWeight: '600' },
-  close: { fontSize: 15 },
   search: {
     marginHorizontal: 20,
     marginVertical: 14,
@@ -112,9 +120,17 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     fontSize: 15,
   },
+  list: { flex: 1 },
   row: { height: 48, justifyContent: 'center', paddingHorizontal: 22 },
   pressed: { opacity: 0.6 },
   rowText: { fontSize: 15 },
   rowActive: { fontWeight: '700' },
   empty: { textAlign: 'center', marginTop: 40, fontSize: 14 },
+  closeBar: {
+    paddingVertical: 16,
+    paddingBottom: 34,
+    alignItems: 'center',
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  closeBarText: { fontSize: 16, fontWeight: '600' },
 });

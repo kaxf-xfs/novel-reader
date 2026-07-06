@@ -53,4 +53,10 @@ describe('TocSheet', () => {
     expect(onSelect).toHaveBeenCalledWith(1);
     expect(onClose).toHaveBeenCalled();
   });
+
+  it('closes from the bottom 关闭 button', async () => {
+    const { findByText, onClose } = renderToc();
+    fireEvent.press(await findByText('关闭'));
+    expect(onClose).toHaveBeenCalled();
+  });
 });

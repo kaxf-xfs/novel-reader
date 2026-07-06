@@ -23,9 +23,14 @@ function setup() {
   return { repo, fs };
 }
 
-function renderReader(repo: InMemoryBookRepository, fs: FakeFileGateway, bookId: string) {
+function renderReader(
+  repo: InMemoryBookRepository,
+  fs: FakeFileGateway,
+  bookId: string,
+  onBack: () => void = () => {},
+) {
   return renderWithSettings(
-    <ReaderScreen repo={repo} fs={fs} bookId={bookId} onBack={() => {}} />,
+    <ReaderScreen repo={repo} fs={fs} bookId={bookId} onBack={onBack} />,
   );
 }
 
@@ -120,6 +125,38 @@ describe('ReaderScreen', () => {
 
     // A drag must NOT hide the bars.
     expect(queryByTestId('reader-topbar')).not.toBeNull();
+  });
+
+  it('returns to the shelf on a left-edge rightward swipe', async () => {
+    const { repo, fs } = setup();
+    await seedReader(repo, fs, { bookId: 'bsw', chapters: CHAPTERS, progressChapterIndex: 0 });
+    const onBack = jest.fn();
+
+    const { findByText, getByTestId } = renderReader(repo, fs, 'bsw', onBack);
+
+    await findByText('内容一。');
+    const surface = getByTestId('reader-surface');
+    fireEvent(surface, 'touchStart', { nativeEvent: { touches: [{ pageX: 10, pageY: 300 }] } });
+    fireEvent(surface, 'touchMove', { nativeEvent: { touches: [{ pageX: 90, pageY: 305 }] } });
+    fireEvent(surface, 'touchEnd', { nativeEvent: { changedTouches: [{ pageX: 90, pageY: 305 }] } });
+
+    expect(onBack).toHaveBeenCalled();
+  });
+
+  it('does not go back on a rightward swipe that starts away from the left edge', async () => {
+    const { repo, fs } = setup();
+    await seedReader(repo, fs, { bookId: 'bsw2', chapters: CHAPTERS, progressChapterIndex: 0 });
+    const onBack = jest.fn();
+
+    const { findByText, getByTestId } = renderReader(repo, fs, 'bsw2', onBack);
+
+    await findByText('内容一。');
+    const surface = getByTestId('reader-surface');
+    fireEvent(surface, 'touchStart', { nativeEvent: { touches: [{ pageX: 200, pageY: 300 }] } });
+    fireEvent(surface, 'touchMove', { nativeEvent: { touches: [{ pageX: 280, pageY: 305 }] } });
+    fireEvent(surface, 'touchEnd', { nativeEvent: { changedTouches: [{ pageX: 280, pageY: 305 }] } });
+
+    expect(onBack).not.toHaveBeenCalled();
   });
 
   it('opens the typography sheet from the bottom bar', async () => {
