@@ -22,6 +22,7 @@ import {
   StyleSheet,
   Text,
   View,
+  type GestureResponderEvent,
   type ViewToken,
 } from 'react-native';
 
@@ -96,6 +97,37 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
   const chapterTextCache = useRef(new Map<number, string>());
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const listRef = useRef<FlatList<FlatBlockItem>>(null);
+
+  // ── Tap-vs-scroll detection for toggling the chrome ───────────────────
+  // Passive touch handlers on a plain View wrapper: they observe touches
+  // WITHOUT claiming the responder, so the FlatList scrolls normally. A tap
+  // is a touch that ends near where it began, quickly, with no drag.
+  const touchStartRef = useRef<{ x: number; y: number; t: number } | null>(null);
+  const touchMovedRef = useRef(false);
+
+  const onSurfaceTouchStart = useCallback((e: GestureResponderEvent) => {
+    const touch = e.nativeEvent.touches[0];
+    if (!touch) return;
+    touchStartRef.current = { x: touch.pageX, y: touch.pageY, t: Date.now() };
+    touchMovedRef.current = false;
+  }, []);
+
+  const onSurfaceTouchMove = useCallback((e: GestureResponderEvent) => {
+    const start = touchStartRef.current;
+    const touch = e.nativeEvent.touches[0];
+    if (!start || !touch) return;
+    if (Math.abs(touch.pageX - start.x) > 8 || Math.abs(touch.pageY - start.y) > 8) {
+      touchMovedRef.current = true;
+    }
+  }, []);
+
+  const onSurfaceTouchEnd = useCallback(() => {
+    const start = touchStartRef.current;
+    touchStartRef.current = null;
+    if (start && !touchMovedRef.current && Date.now() - start.t < 300) {
+      setChromeVisible((v) => !v);
+    }
+  }, []);
 
   // Load a fresh window centered on `index`; shared by initial load and jumps.
   const loadWindow = useCallback(
@@ -279,10 +311,12 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
           <Text style={styles.errorText}>{error}</Text>
         </View>
       ) : (
-        <Pressable
+        <View
           testID="reader-surface"
           style={styles.surface}
-          onPress={() => setChromeVisible((v) => !v)}
+          onTouchStart={onSurfaceTouchStart}
+          onTouchMove={onSurfaceTouchMove}
+          onTouchEnd={onSurfaceTouchEnd}
         >
           <FlatList
             ref={listRef}
@@ -304,7 +338,7 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
             onViewableItemsChanged={onViewableItemsChanged}
             viewabilityConfig={viewabilityConfig}
           />
-        </Pressable>
+        </View>
       )}
 
       {chromeVisible && !loading && error === null && (

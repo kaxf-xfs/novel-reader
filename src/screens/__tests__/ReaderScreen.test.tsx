@@ -85,20 +85,41 @@ describe('ReaderScreen', () => {
     expect(getByText(/^\d{2}:\d{2}$/)).toBeTruthy(); // clock HH:MM
   });
 
-  it('toggles the chrome bars when the reading surface is tapped', async () => {
+  it('toggles the chrome bars on a tap (touch start+end without a drag)', async () => {
     const { repo, fs } = setup();
     await seedReader(repo, fs, { bookId: 'b6', chapters: CHAPTERS, progressChapterIndex: 0 });
 
     const { findByText, getByTestId, queryByTestId } = renderReader(repo, fs, 'b6');
 
     await findByText('内容一。');
+    const surface = getByTestId('reader-surface');
+    const tap = () => {
+      fireEvent(surface, 'touchStart', { nativeEvent: { touches: [{ pageX: 50, pageY: 300 }] } });
+      fireEvent(surface, 'touchEnd', { nativeEvent: { changedTouches: [{ pageX: 50, pageY: 300 }] } });
+    };
+
     expect(queryByTestId('reader-topbar')).not.toBeNull(); // visible by default
-
-    fireEvent.press(getByTestId('reader-surface'));
+    tap();
     expect(queryByTestId('reader-topbar')).toBeNull(); // hidden
-
-    fireEvent.press(getByTestId('reader-surface'));
+    tap();
     expect(queryByTestId('reader-topbar')).not.toBeNull(); // shown again
+  });
+
+  it('does not toggle the chrome when the touch is a drag (scroll)', async () => {
+    const { repo, fs } = setup();
+    await seedReader(repo, fs, { bookId: 'b6b', chapters: CHAPTERS, progressChapterIndex: 0 });
+
+    const { findByText, getByTestId, queryByTestId } = renderReader(repo, fs, 'b6b');
+
+    await findByText('内容一。');
+    const surface = getByTestId('reader-surface');
+
+    fireEvent(surface, 'touchStart', { nativeEvent: { touches: [{ pageX: 50, pageY: 300 }] } });
+    fireEvent(surface, 'touchMove', { nativeEvent: { touches: [{ pageX: 50, pageY: 120 }] } });
+    fireEvent(surface, 'touchEnd', { nativeEvent: { changedTouches: [{ pageX: 50, pageY: 120 }] } });
+
+    // A drag must NOT hide the bars.
+    expect(queryByTestId('reader-topbar')).not.toBeNull();
   });
 
   it('opens the typography sheet from the bottom bar', async () => {
