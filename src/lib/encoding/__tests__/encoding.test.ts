@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { detectEncoding, decodeToUtf8 } from '../index';
 import type { SupportedEncoding } from '../index';
+import { describeCorpus } from '../../../test-utils/corpus';
 
 const NOVELS_DIR = path.resolve(__dirname, '../../../../reference/example_novels');
 
@@ -15,7 +16,7 @@ function readBytes(filename: string): Uint8Array {
 // ---------------------------------------------------------------------------
 
 describe('detectEncoding', () => {
-  describe('UTF-8 files (no BOM)', () => {
+  describeCorpus('UTF-8 files (no BOM)', () => {
     const utf8Files = [
       ['《昊天传》.txt'],
       ['《风月大陆》.txt'],
@@ -30,7 +31,7 @@ describe('detectEncoding', () => {
     });
   });
 
-  describe('UTF-8-BOM file', () => {
+  describeCorpus('UTF-8-BOM file', () => {
     it('detects 《春秋风华录》 .txt as utf-8-bom with confidence 1', () => {
       const bytes = readBytes('《春秋风华录》 .txt').slice(0, 100 * 1024);
       const result = detectEncoding(bytes);
@@ -39,7 +40,7 @@ describe('detectEncoding', () => {
     });
   });
 
-  describe('GB18030 files', () => {
+  describeCorpus('GB18030 files', () => {
     const gb18030Files = [
       ['凡人修仙传.txt'],
       ['魔天记.txt'],
@@ -105,7 +106,7 @@ describe('detectEncoding', () => {
     });
   });
 
-  describe('GB18030 sample negative assertion', () => {
+  describeCorpus('GB18030 sample negative assertion', () => {
     it('does NOT classify 凡人修仙传 (first 100KB) as utf-8', () => {
       const bytes = readBytes('凡人修仙传.txt').slice(0, 100 * 1024);
       const result = detectEncoding(bytes);
@@ -119,7 +120,7 @@ describe('detectEncoding', () => {
 // decodeToUtf8
 // ---------------------------------------------------------------------------
 
-describe('decodeToUtf8', () => {
+describeCorpus('decodeToUtf8', () => {
   it('decodes 昊天传 (utf-8, auto-detect) and contains chapter heading', () => {
     const bytes = readBytes('《昊天传》.txt').slice(0, 256 * 1024);
     const text = decodeToUtf8(bytes);

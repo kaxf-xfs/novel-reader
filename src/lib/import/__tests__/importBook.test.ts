@@ -17,6 +17,7 @@ import { importBook } from '../importBook';
 import { InMemoryBookRepository } from '../repository';
 import type { ImportDeps } from '../importBook';
 import { FakeFileGateway } from '../../../test-utils/fakes';
+import { describeCorpus } from '../../../test-utils/corpus';
 
 const NOVELS_DIR = path.resolve(__dirname, '../../../../reference/example_novels');
 
@@ -231,7 +232,7 @@ describe('importBook – GBK source → UTF-8 normalized', () => {
 // Real novel: 凡人修仙传 (GBK)
 // ---------------------------------------------------------------------------
 
-describe('importBook – real novel 凡人修仙传 (GBK, first 512 KB)', () => {
+describeCorpus('importBook – real novel 凡人修仙传 (GBK, first 512 KB)', () => {
   it('successfully imports and chapter byte slices are valid', async () => {
     const rawBytes = fs.readFileSync(path.join(NOVELS_DIR, '凡人修仙传.txt'));
     const sample = new Uint8Array(rawBytes.slice(0, 512 * 1024));

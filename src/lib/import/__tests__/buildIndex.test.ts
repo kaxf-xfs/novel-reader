@@ -15,6 +15,7 @@
 import path from 'path';
 import fs from 'fs';
 import { buildChapterIndex } from '../buildIndex';
+import { describeCorpus } from '../../../test-utils/corpus';
 
 const NOVELS_DIR = path.resolve(__dirname, '../../../../reference/example_novels');
 
@@ -277,7 +278,7 @@ describe('buildChapterIndex – level preservation', () => {
 // Real novel samples
 // ---------------------------------------------------------------------------
 
-describe('buildChapterIndex – real novel: 凡人修仙传 (GBK → UTF-8)', () => {
+describeCorpus('buildChapterIndex – real novel: 凡人修仙传 (GBK → UTF-8)', () => {
   it('byte slices of first 5 chapters contain their titles', () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const iconv = require('iconv-lite') as { decode(buf: Buffer, enc: string): string };
@@ -304,7 +305,7 @@ describe('buildChapterIndex – real novel: 凡人修仙传 (GBK → UTF-8)', ()
   });
 });
 
-describe('buildChapterIndex – real novel: 如影逐形 (UTF-8 fallback)', () => {
+describeCorpus('buildChapterIndex – real novel: 如影逐形 (UTF-8 fallback)', () => {
   it('byte slices are valid UTF-8 and cover the entire text', () => {
     const rawBytes = fs.readFileSync(path.join(NOVELS_DIR, '如影逐形.txt'));
     const utf8Text = Buffer.from(rawBytes.slice(0, 512 * 1024)).toString('utf8');

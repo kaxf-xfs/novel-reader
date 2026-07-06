@@ -14,6 +14,7 @@ import fs from 'fs';
 import { decodeToUtf8 } from '../../encoding/index';
 import { parseChapters, looksLikeAdLine } from '../index';
 import type { Chapter, ParseResult } from '../index';
+import { describeCorpus } from '../../../test-utils/corpus';
 
 const NOVELS_DIR = path.resolve(__dirname, '../../../../reference/example_novels');
 
@@ -316,7 +317,7 @@ describe('level detection', () => {
 // Fixture: 昊天传 (UTF-8, ~687KB)
 // ---------------------------------------------------------------------------
 
-describe('fixture: 昊天传', () => {
+describeCorpus('fixture:昊天传', () => {
   let text: string;
   let result: ParseResult;
 
@@ -352,7 +353,7 @@ describe('fixture: 昊天传', () => {
 // Fixture: 春秋风华录 (UTF-8-BOM, indented lines, ~1230KB)
 // ---------------------------------------------------------------------------
 
-describe('fixture: 春秋风华录', () => {
+describeCorpus('fixture:春秋风华录', () => {
   let text: string;
   let result: ParseResult;
 
@@ -382,7 +383,7 @@ describe('fixture: 春秋风华录', () => {
 // Fixture: 风月大陆 (GB18030, 卷章同行, ~6866KB)
 // ---------------------------------------------------------------------------
 
-describe('fixture: 风月大陆', () => {
+describeCorpus('fixture:风月大陆', () => {
   let text: string;
   let result: ParseResult;
 
@@ -415,7 +416,7 @@ describe('fixture: 风月大陆', () => {
 // Fixture: 凡人修仙传 (GB18030, 14.8MB, 卷+章)
 // ---------------------------------------------------------------------------
 
-describe('fixture: 凡人修仙传', () => {
+describeCorpus('fixture:凡人修仙传', () => {
   let text: string;
   let result: ParseResult;
 
@@ -462,7 +463,7 @@ describe('fixture: 凡人修仙传', () => {
 // Fixture: 如影逐形 (UTF-8, no chapters → fallback-size)
 // ---------------------------------------------------------------------------
 
-describe('fixture: 如影逐形', () => {
+describeCorpus('fixture:如影逐形', () => {
   let text: string;
   let result: ParseResult;
 
@@ -492,7 +493,7 @@ describe('fixture: 如影逐形', () => {
 // Fixture: 无职转生 (GB18030, chapter titles with ！？, ~3656KB)
 // ---------------------------------------------------------------------------
 
-describe('fixture: 无职转生', () => {
+describeCorpus('fixture:无职转生', () => {
   let text: string;
   let result: ParseResult;
 
@@ -518,7 +519,7 @@ describe('fixture: 无职转生', () => {
 // Fixture: 晚明 (GB18030, 卷+章, 序, ~4578KB)
 // ---------------------------------------------------------------------------
 
-describe('fixture: 晚明', () => {
+describeCorpus('fixture:晚明', () => {
   let text: string;
   let result: ParseResult;
 
@@ -561,7 +562,7 @@ describe('fixture: 晚明', () => {
 // Fixture: 魔天记 (GB18030, bare 第一章 titles, ~10206KB)
 // ---------------------------------------------------------------------------
 
-describe('fixture: 魔天记', () => {
+describeCorpus('fixture:魔天记', () => {
   let text: string;
   let result: ParseResult;
 
@@ -596,7 +597,7 @@ describe('fixture: 魔天记', () => {
 // Fixture: 龙魂侠影 (GB18030, 集+回, NEL line endings, ~10590KB)
 // ---------------------------------------------------------------------------
 
-describe('fixture: 龙魂侠影', () => {
+describeCorpus('fixture:龙魂侠影', () => {
   let text: string;
   let result: ParseResult;
 
