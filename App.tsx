@@ -1,9 +1,13 @@
 import { useCallback, useMemo, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { StyleSheet, View } from 'react-native';
+import { useFonts } from 'expo-font';
 
 import { SqliteBookRepository } from './src/lib/import/sqliteRepository';
 import { ExpoFileGateway } from './src/lib/import/expoFileGateway';
+import { ExpoSettingsGateway } from './src/lib/settings/expoSettingsGateway';
+import { CANGER_FONT_FAMILY } from './src/lib/settings/styles';
+import { SettingsProvider } from './src/settings/SettingsContext';
 import { LibraryScreen } from './src/screens/LibraryScreen';
 import { ReaderScreen } from './src/screens/ReaderScreen';
 
@@ -12,9 +16,15 @@ type Screen = { name: 'library' } | { name: 'reader'; bookId: string };
 export default function App() {
   const [screen, setScreen] = useState<Screen>({ name: 'library' });
 
-  // Single long-lived instances, shared by both screens.
+  // 仓耳今楷 is loaded at runtime (not embedded natively) so it ships via OTA.
+  // Loading is non-blocking: until it's ready, text using this family falls
+  // back to the system font, then re-renders once loaded.
+  useFonts({ [CANGER_FONT_FAMILY]: require('./assets/fonts/CangEr-JinKai04.ttf') });
+
+  // Single long-lived instances, shared across the app.
   const repo = useMemo(() => new SqliteBookRepository(), []);
   const fs = useMemo(() => new ExpoFileGateway(), []);
+  const settingsGateway = useMemo(() => new ExpoSettingsGateway(), []);
 
   const openBook = useCallback((bookId: string) => {
     setScreen({ name: 'reader', bookId });
@@ -25,14 +35,16 @@ export default function App() {
   }, []);
 
   return (
-    <View style={styles.container}>
-      <StatusBar style="light" />
-      {screen.name === 'library' ? (
-        <LibraryScreen repo={repo} fs={fs} onOpenBook={openBook} />
-      ) : (
-        <ReaderScreen repo={repo} fs={fs} bookId={screen.bookId} onBack={backToLibrary} />
-      )}
-    </View>
+    <SettingsProvider gateway={settingsGateway}>
+      <View style={styles.container}>
+        <StatusBar style="light" />
+        {screen.name === 'library' ? (
+          <LibraryScreen repo={repo} fs={fs} onOpenBook={openBook} />
+        ) : (
+          <ReaderScreen repo={repo} fs={fs} bookId={screen.bookId} onBack={backToLibrary} />
+        )}
+      </View>
+    </SettingsProvider>
   );
 }
 

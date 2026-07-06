@@ -30,6 +30,9 @@ import type { BookRecord, BookRepository, ChapterRecord } from '../lib/import/re
 import { readChapterText } from '../lib/reader/readChapter';
 import { splitBlocks } from '../lib/reader/blocks';
 import { windowIndices } from '../lib/reader/window';
+import { computeReaderStyles } from '../lib/settings/styles';
+import { useSettings } from '../settings/SettingsContext';
+import { ReaderSettingsSheet } from '../settings/ReaderSettingsSheet';
 
 interface ReaderScreenProps {
   repo: BookRepository;
@@ -68,6 +71,10 @@ async function loadChapterBlocks(
 }
 
 export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
+  const { settings } = useSettings();
+  const rs = useMemo(() => computeReaderStyles(settings), [settings]);
+  const [showSettings, setShowSettings] = useState(false);
+
   const [book, setBook] = useState<BookRecord | null>(null);
   const [chapters, setChapters] = useState<ChapterRecord[] | null>(null);
   const [blocks, setBlocks] = useState<FlatBlockItem[]>([]);
@@ -212,33 +219,39 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
         disabled={loadingAbove}
       >
         {loadingAbove ? (
-          <ActivityIndicator color="#8b8f99" size="small" />
+          <ActivityIndicator color={rs.theme.subtle} size="small" />
         ) : (
-          <Text style={styles.prevButtonText}>加载上一章</Text>
+          <Text style={[styles.prevButtonText, { color: rs.theme.subtle }]}>加载上一章</Text>
         )}
       </Pressable>
     );
-  }, [lo, loadingAbove, loadPreviousChapter]);
+  }, [lo, loadingAbove, loadPreviousChapter, rs.theme.subtle]);
 
   const listFooter = useMemo(() => {
     if (!loadingBelow) return null;
-    return <ActivityIndicator color="#8b8f99" style={styles.footerSpinner} />;
-  }, [loadingBelow]);
+    return <ActivityIndicator color={rs.theme.subtle} style={styles.footerSpinner} />;
+  }, [loadingBelow, rs.theme.subtle]);
 
   return (
-    <View style={styles.container}>
-      <View style={styles.topBar}>
+    <View style={[styles.container, rs.container]}>
+      <View style={[styles.topBar, { borderBottomColor: rs.theme.border }]}>
         <Pressable onPress={onBack} hitSlop={12} style={styles.backButton}>
-          <Text style={styles.backText}>‹ 书架</Text>
+          <Text style={[styles.backText, { color: rs.theme.subtle }]}>‹ 书架</Text>
         </Pressable>
-        <Text style={styles.topBarTitle} numberOfLines={1}>
+        <Text style={[styles.topBarTitle, { color: rs.theme.heading }]} numberOfLines={1}>
           {currentTitle}
         </Text>
-        <View style={styles.backButtonSpacer} />
+        <Pressable
+          onPress={() => setShowSettings(true)}
+          hitSlop={12}
+          style={styles.gearButton}
+        >
+          <Text style={[styles.gearText, { color: rs.theme.subtle }]}>Aa</Text>
+        </Pressable>
       </View>
 
       {loading ? (
-        <ActivityIndicator color="#8b8f99" style={styles.centerSpinner} />
+        <ActivityIndicator color={rs.theme.subtle} style={styles.centerSpinner} />
       ) : error !== null ? (
         <View style={styles.centerMessage}>
           <Text style={styles.errorText}>{error}</Text>
@@ -247,12 +260,14 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
         <FlatList
           data={blocks}
           keyExtractor={(item) => item.key}
-          renderItem={({ item }) => (
-            <Text style={item.isTitle ? styles.chapterHeading : styles.paragraph}>
-              {item.text}
-            </Text>
-          )}
-          contentContainerStyle={styles.content}
+          renderItem={({ item }) =>
+            item.isTitle ? (
+              <Text style={[styles.chapterHeadingSpacing, rs.heading]}>{item.text}</Text>
+            ) : (
+              <Text style={rs.paragraph}>{item.text}</Text>
+            )
+          }
+          contentContainerStyle={[styles.content, rs.content]}
           ListHeaderComponent={listHeader}
           ListFooterComponent={listFooter}
           onEndReached={loadMoreBelow}
@@ -262,6 +277,8 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
           viewabilityConfig={viewabilityConfig}
         />
       )}
+
+      <ReaderSettingsSheet visible={showSettings} onClose={() => setShowSettings(false)} />
     </View>
   );
 }
@@ -278,11 +295,11 @@ const styles = StyleSheet.create({
     borderBottomColor: '#2a2d35',
   },
   backButton: { minWidth: 64 },
-  backButtonSpacer: { minWidth: 64 },
-  backText: { color: '#8b8f99', fontSize: 15 },
+  gearButton: { minWidth: 64, alignItems: 'flex-end' },
+  gearText: { fontSize: 18, fontWeight: '600' },
+  backText: { fontSize: 15 },
   topBarTitle: {
     flex: 1,
-    color: '#f5f3ee',
     fontSize: 15,
     fontWeight: '500',
     textAlign: 'center',
@@ -291,19 +308,10 @@ const styles = StyleSheet.create({
   centerMessage: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   errorText: { color: '#e0a0a0', fontSize: 15, textAlign: 'center' },
   content: { paddingHorizontal: 24, paddingVertical: 24 },
-  chapterHeading: {
-    color: '#f5f3ee',
-    fontSize: 21,
+  chapterHeadingSpacing: {
     fontWeight: '600',
-    lineHeight: 30,
     marginTop: 28,
     marginBottom: 16,
-  },
-  paragraph: {
-    color: '#dcdad3',
-    fontSize: 18,
-    lineHeight: 32.4, // ~1.8x
-    marginBottom: 14,
   },
   prevButton: {
     alignSelf: 'center',
