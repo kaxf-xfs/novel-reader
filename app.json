@@ -16,7 +16,8 @@
       "fallbackToCacheTimeout": 0,
       "requestHeaders": {
         "expo-channel-name": "production"
-      }
+      },
+      "url": "https://u.expo.dev/8e52b207-3a61-4ad3-b0b8-0d6b9cb78dac"
     },
     "ios": {
       "supportsTablet": true,
@@ -37,6 +38,12 @@
     },
     "plugins": [
       "expo-sqlite"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "8e52b207-3a61-4ad3-b0b8-0d6b9cb78dac"
+      }
+    },
+    "owner": "novel-reader"
   }
 }
