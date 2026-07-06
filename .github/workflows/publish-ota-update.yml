@@ -1,16 +1,18 @@
-name: Publish OTA Update (EAS Update)
+name: Verify + Publish OTA Update
 
-# 日常纯 JS/TS 迭代：push 到 main → 在 CI 里跑 eas update 发布 OTA。
-# 已安装的 App 下次冷启动自动拉取新 JS bundle，无需 GitHub Actions 原生重建、无需插线重签。
+# 门禁 + 发布：
+#   - verify: 每次 PR 与 push 都跑 tsc + Jest（含组件测试）+ Metro 打包冒烟。
+#     把书架/阅读/排版等原本靠真机手动检查的项变成自动关卡；同时 expo export
+#     能抓「npm test 绿但 RN bundle 崩」的老坑（见 docs / metro.config.js）。
+#   - publish-ota: 仅在 push 到 main 且 verify 通过后运行，跑 eas update 发 OTA。
+#     已安装的 App 下次冷启动自动拉新 JS bundle，无需原生重建/重签。
 #
-# 前置（一次性，见 docs/EAS_UPDATE_SETUP.md）：
-#   1. 本地 `eas init` + `eas update:configure` 写入 projectId 与 updates.url
-#   2. 在 Expo 生成一个访问令牌，存到本仓库 GitHub Secrets 的 EXPO_TOKEN
-#
-# 在 CI 里发布可保证 runtimeVersion(fingerprint) 与原生构建环境一致。
+# 前置（一次性，见 docs/EAS_UPDATE_SETUP.md）：EXPO_TOKEN 存到仓库 Secrets。
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [main]
   push:
     branches: [main]
     paths-ignore:
@@ -18,7 +20,33 @@ on:
       - '.github/workflows/build-unsigned-ipa.yml'
 
 jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: Typecheck (tsc strict)
+        run: npx tsc --noEmit
+
+      - name: Unit + component tests
+        run: npm test -- --ci
+
+      - name: Metro bundle smoke (iOS export)
+        run: npx expo export --platform ios
+
   publish-ota:
+    needs: verify
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code

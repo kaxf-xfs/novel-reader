@@ -15,41 +15,10 @@ import fs from 'fs';
 import iconv from 'iconv-lite';
 import { importBook } from '../importBook';
 import { InMemoryBookRepository } from '../repository';
-import type { FileGateway, ImportDeps } from '../importBook';
+import type { ImportDeps } from '../importBook';
+import { FakeFileGateway } from '../../../test-utils/fakes';
 
 const NOVELS_DIR = path.resolve(__dirname, '../../../../reference/example_novels');
-
-// ---------------------------------------------------------------------------
-// Fake FileGateway
-// ---------------------------------------------------------------------------
-
-class FakeFileGateway implements FileGateway {
-  /** Bytes returned by readBytes */
-  private bytesMap: Map<string, Uint8Array> = new Map();
-  /** Captured calls to writeNormalized: bookId → utf8 string written */
-  public writtenBooks: Map<string, string> = new Map();
-
-  registerFile(uri: string, bytes: Uint8Array): void {
-    this.bytesMap.set(uri, bytes);
-  }
-
-  async readBytes(uri: string): Promise<Uint8Array> {
-    const b = this.bytesMap.get(uri);
-    if (!b) throw new Error(`FakeFileGateway: no file registered for ${uri}`);
-    return b;
-  }
-
-  async writeNormalized(bookId: string, utf8: string): Promise<string> {
-    this.writtenBooks.set(bookId, utf8);
-    return `/fake/books/${bookId}.txt`;
-  }
-
-  async readRange(uri: string, byteStart: number, byteEnd: number): Promise<Uint8Array> {
-    const b = this.bytesMap.get(uri);
-    if (!b) throw new Error(`FakeFileGateway: no file registered for ${uri}`);
-    return b.subarray(byteStart, byteEnd);
-  }
-}
 
 function makeDeps(
   gateway: FakeFileGateway,

@@ -233,7 +233,7 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
   }, [loadingBelow, rs.theme.subtle]);
 
   return (
-    <View style={[styles.container, rs.container]}>
+    <View testID="reader-root" style={[styles.container, rs.container]}>
       <View style={[styles.topBar, { borderBottomColor: rs.theme.border }]}>
         <Pressable onPress={onBack} hitSlop={12} style={styles.backButton}>
           <Text style={[styles.backText, { color: rs.theme.subtle }]}>‹ 书架</Text>
