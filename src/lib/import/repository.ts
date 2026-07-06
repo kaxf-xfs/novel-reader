@@ -36,6 +36,15 @@ export interface ChapterRecord {
   byteEnd: number;
 }
 
+export interface ProgressRecord {
+  bookId: string;
+  /** 0-based index of the chapter the reader last had in view. */
+  chapterIndex: number;
+  /** Character offset within the chapter (best-effort; 0 if unknown). */
+  charOffset: number;
+  updatedAt: number; // Unix ms
+}
+
 // ---------------------------------------------------------------------------
 // Repository interface
 // ---------------------------------------------------------------------------
@@ -48,6 +57,10 @@ export interface BookRepository {
   getChapters(bookId: string): Promise<ChapterRecord[]>;
   /** Removes the book and all its chapters (cascade). */
   deleteBook(bookId: string): Promise<void>;
+  /** Upserts the reading progress for a book. */
+  saveProgress(p: ProgressRecord): Promise<void>;
+  /** Returns the saved progress for a book, or null if none exists. */
+  getProgress(bookId: string): Promise<ProgressRecord | null>;
 }
 
 // ---------------------------------------------------------------------------
@@ -57,6 +70,7 @@ export interface BookRepository {
 export class InMemoryBookRepository implements BookRepository {
   private books = new Map<string, BookRecord>();
   private chapters = new Map<string, ChapterRecord[]>();
+  private progress = new Map<string, ProgressRecord>();
 
   async addBook(b: BookRecord): Promise<void> {
     this.books.set(b.id, { ...b });
@@ -79,5 +93,14 @@ export class InMemoryBookRepository implements BookRepository {
   async deleteBook(bookId: string): Promise<void> {
     this.books.delete(bookId);
     this.chapters.delete(bookId);
+    this.progress.delete(bookId);
+  }
+
+  async saveProgress(p: ProgressRecord): Promise<void> {
+    this.progress.set(p.bookId, { ...p });
+  }
+
+  async getProgress(bookId: string): Promise<ProgressRecord | null> {
+    return this.progress.get(bookId) ?? null;
   }
 }

@@ -43,6 +43,12 @@ class FakeFileGateway implements FileGateway {
     this.writtenBooks.set(bookId, utf8);
     return `/fake/books/${bookId}.txt`;
   }
+
+  async readRange(uri: string, byteStart: number, byteEnd: number): Promise<Uint8Array> {
+    const b = this.bytesMap.get(uri);
+    if (!b) throw new Error(`FakeFileGateway: no file registered for ${uri}`);
+    return b.subarray(byteStart, byteEnd);
+  }
 }
 
 function makeDeps(

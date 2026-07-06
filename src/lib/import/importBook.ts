@@ -36,6 +36,15 @@ export interface FileGateway {
    * @returns       The file:// URI of the written file.
    */
   writeNormalized(bookId: string, utf8: string): Promise<string>;
+  /**
+   * Read a byte range [byteStart, byteEnd) from the file at `uri` without
+   * loading the whole file into memory.  Used by the reader (T4) to stream
+   * individual chapters from the normalized UTF-8 copy.
+   *
+   * `byteStart`/`byteEnd` are expected to land on UTF-8 character boundaries
+   * (guaranteed for offsets coming from ChapterRecord, see buildChapterIndex).
+   */
+  readRange(uri: string, byteStart: number, byteEnd: number): Promise<Uint8Array>;
 }
 
 export interface ImportDeps {

@@ -7,7 +7,7 @@
  */
 
 import { InMemoryBookRepository } from '../repository';
-import type { BookRecord, ChapterRecord } from '../repository';
+import type { BookRecord, ChapterRecord, ProgressRecord } from '../repository';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -185,5 +185,66 @@ describe('InMemoryBookRepository – deleteBook', () => {
   it('deleting non-existent book is a no-op', async () => {
     const repo = new InMemoryBookRepository();
     await expect(repo.deleteBook('ghost')).resolves.toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// saveProgress / getProgress
+// ---------------------------------------------------------------------------
+
+function makeProgress(override: Partial<ProgressRecord> = {}): ProgressRecord {
+  return {
+    bookId: 'book-1',
+    chapterIndex: 3,
+    charOffset: 120,
+    updatedAt: 1_700_000_000_000,
+    ...override,
+  };
+}
+
+describe('InMemoryBookRepository – saveProgress / getProgress', () => {
+  it('returns null when no progress has been saved', async () => {
+    const repo = new InMemoryBookRepository();
+    expect(await repo.getProgress('unknown')).toBeNull();
+  });
+
+  it('retrieves progress after saveProgress', async () => {
+    const repo = new InMemoryBookRepository();
+    const p = makeProgress();
+    await repo.saveProgress(p);
+    expect(await repo.getProgress('book-1')).toEqual(p);
+  });
+
+  it('saveProgress overwrites the previous record for the same book', async () => {
+    const repo = new InMemoryBookRepository();
+    await repo.saveProgress(makeProgress({ chapterIndex: 1, charOffset: 0 }));
+    await repo.saveProgress(makeProgress({ chapterIndex: 5, charOffset: 42 }));
+    const p = await repo.getProgress('book-1');
+    expect(p?.chapterIndex).toBe(5);
+    expect(p?.charOffset).toBe(42);
+  });
+
+  it('progress for different books is isolated', async () => {
+    const repo = new InMemoryBookRepository();
+    await repo.saveProgress(makeProgress({ bookId: 'b1', chapterIndex: 1 }));
+    await repo.saveProgress(makeProgress({ bookId: 'b2', chapterIndex: 9 }));
+    expect((await repo.getProgress('b1'))?.chapterIndex).toBe(1);
+    expect((await repo.getProgress('b2'))?.chapterIndex).toBe(9);
+  });
+
+  it('deleteBook clears the saved progress for that book', async () => {
+    const repo = new InMemoryBookRepository();
+    await repo.addBook(makeBook({ id: 'del' }));
+    await repo.saveProgress(makeProgress({ bookId: 'del' }));
+    await repo.deleteBook('del');
+    expect(await repo.getProgress('del')).toBeNull();
+  });
+
+  it('deleteBook does not affect progress of other books', async () => {
+    const repo = new InMemoryBookRepository();
+    await repo.saveProgress(makeProgress({ bookId: 'keep' }));
+    await repo.saveProgress(makeProgress({ bookId: 'del' }));
+    await repo.deleteBook('del');
+    expect(await repo.getProgress('keep')).not.toBeNull();
   });
 });

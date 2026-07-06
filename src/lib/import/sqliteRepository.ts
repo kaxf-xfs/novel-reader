@@ -25,6 +25,13 @@
  *     PRIMARY KEY (bookId, idx)
  *   )
  *
+ *   progress (
+ *     bookId       TEXT PRIMARY KEY REFERENCES books(id) ON DELETE CASCADE,
+ *     chapterIndex INTEGER NOT NULL,
+ *     charOffset   INTEGER NOT NULL,
+ *     updatedAt    INTEGER NOT NULL
+ *   )
+ *
  * NOT unit-tested (native SQLite doesn't run in the Jest/Node environment).
  * Type correctness is guaranteed by tsc strict mode.
  *
@@ -35,7 +42,7 @@
 
 import { openDatabaseAsync } from 'expo-sqlite';
 import type { SQLiteDatabase } from 'expo-sqlite';
-import type { BookRecord, ChapterRecord, BookRepository } from './repository';
+import type { BookRecord, ChapterRecord, BookRepository, ProgressRecord } from './repository';
 
 const DB_NAME = 'novel-reader.db';
 
@@ -75,6 +82,16 @@ const CREATE_CHAPTERS_INDEX = `
     ON chapters (bookId, idx);
 `;
 
+const CREATE_PROGRESS_TABLE = `
+  CREATE TABLE IF NOT EXISTS progress (
+    bookId       TEXT PRIMARY KEY,
+    chapterIndex INTEGER NOT NULL,
+    charOffset   INTEGER NOT NULL,
+    updatedAt    INTEGER NOT NULL,
+    FOREIGN KEY (bookId) REFERENCES books(id) ON DELETE CASCADE
+  );
+`;
+
 // ---------------------------------------------------------------------------
 // SqliteBookRepository
 // ---------------------------------------------------------------------------
@@ -92,7 +109,9 @@ export class SqliteBookRepository implements BookRepository {
     await db.execAsync('PRAGMA journal_mode = WAL;');
     // Enable foreign-key enforcement.
     await db.execAsync('PRAGMA foreign_keys = ON;');
-    await db.execAsync(CREATE_BOOKS_TABLE + CREATE_CHAPTERS_TABLE + CREATE_CHAPTERS_INDEX);
+    await db.execAsync(
+      CREATE_BOOKS_TABLE + CREATE_CHAPTERS_TABLE + CREATE_CHAPTERS_INDEX + CREATE_PROGRESS_TABLE,
+    );
     return db;
   }
 
@@ -188,5 +207,30 @@ export class SqliteBookRepository implements BookRepository {
     const db = await this.dbPromise;
     // Cascade is handled by the FOREIGN KEY constraint (PRAGMA foreign_keys=ON).
     await db.runAsync('DELETE FROM books WHERE id = ?', bookId);
+  }
+
+  async saveProgress(p: ProgressRecord): Promise<void> {
+    const db = await this.dbPromise;
+    await db.runAsync(
+      `INSERT OR REPLACE INTO progress (bookId, chapterIndex, charOffset, updatedAt)
+       VALUES (?, ?, ?, ?)`,
+      p.bookId,
+      p.chapterIndex,
+      p.charOffset,
+      p.updatedAt,
+    );
+  }
+
+  async getProgress(bookId: string): Promise<ProgressRecord | null> {
+    const db = await this.dbPromise;
+    type Row = { bookId: string; chapterIndex: number; charOffset: number; updatedAt: number };
+    const row = await db.getFirstAsync<Row>('SELECT * FROM progress WHERE bookId = ?', bookId);
+    if (!row) return null;
+    return {
+      bookId: row.bookId,
+      chapterIndex: row.chapterIndex,
+      charOffset: row.charOffset,
+      updatedAt: row.updatedAt,
+    };
   }
 }

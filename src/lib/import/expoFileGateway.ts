@@ -22,7 +22,7 @@
  * concurrently, the idempotent create ensures no race condition.
  */
 
-import { File, Directory, Paths } from 'expo-file-system';
+import { File, Directory, Paths, FileMode } from 'expo-file-system';
 import type { FileGateway } from './importBook';
 
 export class ExpoFileGateway implements FileGateway {
@@ -56,5 +56,25 @@ export class ExpoFileGateway implements FileGateway {
     dest.write(utf8);
 
     return dest.uri;
+  }
+
+  /**
+   * Read a byte range [byteStart, byteEnd) from the file at `uri`.
+   *
+   * Uses expo-file-system v15's synchronous FileHandle API (File.open()):
+   * open the file read-only, seek by setting `handle.offset`, read
+   * `byteEnd - byteStart` bytes, then close the handle. This avoids ever
+   * loading the whole (potentially 15-20MB) file into memory — only the
+   * requested chapter window is read.
+   */
+  async readRange(uri: string, byteStart: number, byteEnd: number): Promise<Uint8Array> {
+    const file = new File(uri);
+    const handle = file.open(FileMode.ReadOnly);
+    try {
+      handle.offset = byteStart;
+      return handle.readBytes(byteEnd - byteStart);
+    } finally {
+      handle.close();
+    }
   }
 }
