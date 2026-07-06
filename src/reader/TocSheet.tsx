@@ -71,7 +71,7 @@ export function TocSheet({ visible, chapters, currentIndex, onSelect, onClose }:
                   numberOfLines={1}
                   style={[
                     styles.rowText,
-                    { color: active ? theme.heading : theme.text },
+                    { color: active ? theme.accent : theme.text },
                     active && styles.rowActive,
                   ]}
                 >

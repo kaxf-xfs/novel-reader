@@ -22,16 +22,19 @@ export interface Theme {
   subtle: string;
   /** Hairline separators. */
   border: string;
+  /** Restrained accent for progress + primary controls. */
+  accent: string;
 }
 
 const THEMES: Record<ThemeId, Theme> = {
-  // Sophisticated near-black (current reader look).
+  // 墨隐 — deep blue-black ink with an ivory read and a celadon accent.
   dark: {
-    background: '#15171c',
-    text: '#dcdad3',
-    heading: '#f5f3ee',
-    subtle: '#8b8f99',
-    border: '#2a2d35',
+    background: '#14161b',
+    text: '#d8d3c6',
+    heading: '#ece7db',
+    subtle: '#7f838d',
+    border: '#24272f',
+    accent: '#83a99b',
   },
   // True OLED black.
   black: {
@@ -39,7 +42,8 @@ const THEMES: Record<ThemeId, Theme> = {
     text: '#c9c7c0',
     heading: '#efece5',
     subtle: '#7a7e88',
-    border: '#1c1c1e',
+    border: '#1b1b1d',
+    accent: '#8fb8a8',
   },
   // Clean white paper.
   paper: {
@@ -48,6 +52,7 @@ const THEMES: Record<ThemeId, Theme> = {
     heading: '#111111',
     subtle: '#8a8a8a',
     border: '#e5e3dd',
+    accent: '#4b6b88',
   },
   // Warm sepia (paper yellow).
   sepia: {
@@ -56,6 +61,7 @@ const THEMES: Record<ThemeId, Theme> = {
     heading: '#2e2619',
     subtle: '#9b8b6f',
     border: '#e0d4bd',
+    accent: '#a4552f',
   },
   // Eye-care green.
   green: {
@@ -64,6 +70,7 @@ const THEMES: Record<ThemeId, Theme> = {
     heading: '#1f2b1c',
     subtle: '#6b7d66',
     border: '#b2cfae',
+    accent: '#3f7a52',
   },
 };
 

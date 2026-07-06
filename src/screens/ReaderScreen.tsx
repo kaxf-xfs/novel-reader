@@ -394,7 +394,7 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
               disabled={!!chapters && currentChapterIndex >= chapters.length - 1}
               onPress={() => jumpToChapter(currentChapterIndex + 1)}
             />
-            <BarButton label="排版" color={rs.theme.text} onPress={() => setShowSettings(true)} />
+            <BarButton label="排版" color={rs.theme.accent} onPress={() => setShowSettings(true)} />
           </View>
         </>
       )}

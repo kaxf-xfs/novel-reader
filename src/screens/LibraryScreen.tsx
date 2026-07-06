@@ -127,7 +127,7 @@ export function LibraryScreen({ repo, fs, onOpenBook }: LibraryScreenProps) {
 
   const renderItem = useCallback(
     ({ item }: { item: BookListItem }) => {
-      const cover = buildCover(item.book.title, item.book.coverColor);
+      const cover = buildCover(item.book.title);
       const pct = item.progressPercent ?? 0;
       return (
         <Pressable
@@ -181,7 +181,7 @@ export function LibraryScreen({ repo, fs, onOpenBook }: LibraryScreenProps) {
       {error !== null && <Text style={styles.error}>{error}</Text>}
 
       {loadingList ? (
-        <ActivityIndicator color="#8b8f99" style={styles.loading} />
+        <ActivityIndicator color={INK_SUBTLE} style={styles.loading} />
       ) : items.length === 0 ? (
         <View style={styles.empty}>
           <Text style={styles.emptyText}>书架空空如也</Text>
@@ -203,18 +203,29 @@ export function LibraryScreen({ repo, fs, onOpenBook }: LibraryScreenProps) {
 
 const COVER_ASPECT = 3 / 4;
 
+// 墨隐 (Ink & Shadow) — the app frame is a fixed deep-ink look; the reading
+// background theme is chosen separately in the reader.
+const INK_BG = '#14161b';
+const INK_HEADING = '#ece7db';
+const INK_SUBTLE = '#7f838d';
+const INK_FAINT = '#585c65';
+const INK_ACCENT = '#83a99b';
+const INK_TRACK = '#24272f';
+const COVER_FRAME = 'rgba(242,237,225,0.12)';
+const COVER_SERIF = 'Songti SC';
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#15171c', paddingTop: 64 },
+  container: { flex: 1, backgroundColor: INK_BG, paddingTop: 64 },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    marginBottom: 20,
+    paddingHorizontal: 22,
+    marginBottom: 22,
   },
-  title: { color: '#f5f3ee', fontSize: 28, fontWeight: '600', letterSpacing: 1 },
+  title: { color: INK_HEADING, fontSize: 28, fontWeight: '600', letterSpacing: 2 },
   importButton: {
-    backgroundColor: '#f5f3ee',
+    backgroundColor: INK_HEADING,
     paddingHorizontal: 18,
     paddingVertical: 9,
     borderRadius: 20,
@@ -222,33 +233,46 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   pressed: { opacity: 0.7 },
-  importButtonText: { color: '#15171c', fontSize: 14, fontWeight: '600' },
-  error: { color: '#e0a0a0', paddingHorizontal: 20, marginBottom: 8, fontSize: 13 },
+  importButtonText: { color: INK_BG, fontSize: 14, fontWeight: '600' },
+  error: { color: '#e0a0a0', paddingHorizontal: 22, marginBottom: 8, fontSize: 13 },
   loading: { marginTop: 60 },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: 100 },
-  emptyText: { color: '#8b8f99', fontSize: 18, marginBottom: 8 },
-  emptyHint: { color: '#4a4e57', fontSize: 13 },
-  list: { paddingHorizontal: 20, paddingBottom: 40 },
-  row: { gap: 16 },
-  cell: { flex: 1, marginBottom: 22, maxWidth: '50%' },
+  emptyText: { color: INK_SUBTLE, fontSize: 18, marginBottom: 8 },
+  emptyHint: { color: INK_FAINT, fontSize: 13 },
+  list: { paddingHorizontal: 22, paddingBottom: 40 },
+  row: { gap: 18 },
+  cell: { flex: 1, marginBottom: 24, maxWidth: '50%' },
   cover: {
     width: '100%',
     aspectRatio: COVER_ASPECT,
-    borderRadius: 10,
+    borderRadius: 9,
     alignItems: 'center',
     justifyContent: 'center',
     padding: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: COVER_FRAME,
+    shadowColor: '#000',
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
   },
-  coverLabel: { fontSize: 34, fontWeight: '700', letterSpacing: 2, textAlign: 'center' },
+  coverLabel: {
+    fontFamily: COVER_SERIF,
+    fontSize: 32,
+    fontWeight: '600',
+    letterSpacing: 3,
+    lineHeight: 38,
+    textAlign: 'center',
+  },
   progressTrack: {
     height: 3,
     borderRadius: 2,
-    backgroundColor: '#2a2d35',
-    marginTop: 10,
+    backgroundColor: INK_TRACK,
+    marginTop: 11,
     overflow: 'hidden',
   },
-  progressFill: { height: 3, borderRadius: 2, backgroundColor: '#8b8f99' },
-  bookTitle: { color: '#f5f3ee', fontSize: 15, fontWeight: '500', marginTop: 8 },
-  bookMeta: { color: '#8b8f99', fontSize: 12, marginTop: 3 },
-  bookSubMeta: { color: '#5a5e68', fontSize: 11, marginTop: 1 },
+  progressFill: { height: 3, borderRadius: 2, backgroundColor: INK_ACCENT },
+  bookTitle: { color: INK_HEADING, fontSize: 15, fontWeight: '500', marginTop: 9 },
+  bookMeta: { color: INK_SUBTLE, fontSize: 12, marginTop: 3 },
+  bookSubMeta: { color: INK_FAINT, fontSize: 11, marginTop: 1 },
 });

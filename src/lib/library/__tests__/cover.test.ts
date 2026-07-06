@@ -1,4 +1,4 @@
-import { buildCover, coverTextColor } from '../cover';
+import { buildCover, coverTextColor, pickCoverColor, COVER_PALETTE } from '../cover';
 
 describe('coverTextColor', () => {
   it('returns dark text on a light (pastel) background', () => {
@@ -6,43 +6,59 @@ describe('coverTextColor', () => {
   });
 
   it('returns light text on a dark background', () => {
-    expect(coverTextColor('#2a2d35')).toBe('#f5f3ee');
+    expect(coverTextColor('#2a2d35')).toBe('#f2ede1');
   });
 
-  it('handles shorthand-less 6-digit hex regardless of case', () => {
+  it('handles 6-digit hex regardless of case', () => {
     expect(coverTextColor('#ffffff')).toBe('#1a1a1a');
-    expect(coverTextColor('#000000')).toBe('#f5f3ee');
+    expect(coverTextColor('#000000')).toBe('#f2ede1');
+  });
+});
+
+describe('pickCoverColor', () => {
+  it('returns a color from the palette', () => {
+    expect(COVER_PALETTE).toContain(pickCoverColor('凡人修仙传'));
+  });
+
+  it('is deterministic for the same title', () => {
+    expect(pickCoverColor('琥珀之剑')).toBe(pickCoverColor('琥珀之剑'));
+  });
+
+  it('every palette color is dark enough for light text', () => {
+    for (const c of COVER_PALETTE) {
+      expect(coverTextColor(c)).toBe('#f2ede1');
+    }
   });
 });
 
 describe('buildCover', () => {
   it('uses the first two characters of the title as the label', () => {
-    const cover = buildCover('凡人修仙传', '#3a5f9a');
-    expect(cover.label).toBe('凡人');
-    expect(cover.background).toBe('#3a5f9a');
+    expect(buildCover('凡人修仙传').label).toBe('凡人');
   });
 
   it('strips bracket decoration before taking label chars', () => {
-    expect(buildCover('《昊天传》', '#E8D5B7').label).toBe('昊天');
-    expect(buildCover('【测试】', '#E8D5B7').label).toBe('测试');
+    expect(buildCover('《昊天传》').label).toBe('昊天');
+    expect(buildCover('【测试】').label).toBe('测试');
   });
 
   it('falls back to 书 for an empty or decoration-only title', () => {
-    expect(buildCover('', '#E8D5B7').label).toBe('书');
-    expect(buildCover('《》', '#E8D5B7').label).toBe('书');
+    expect(buildCover('').label).toBe('书');
+    expect(buildCover('《》').label).toBe('书');
   });
 
   it('keeps a single-character title as one char', () => {
-    expect(buildCover('书', '#E8D5B7').label).toBe('书');
+    expect(buildCover('书').label).toBe('书');
   });
 
   it('counts astral (surrogate-pair) characters as one', () => {
-    // '𠀀' is a single code point spanning two UTF-16 units
-    expect(buildCover('𠀀𠀁𠀂', '#E8D5B7').label).toBe('𠀀𠀁');
+    expect(buildCover('𠀀𠀁𠀂').label).toBe('𠀀𠀁');
   });
 
-  it('sets a contrasting text color from the background', () => {
-    expect(buildCover('测试', '#E8D5B7').textColor).toBe('#1a1a1a');
-    expect(buildCover('测试', '#222222').textColor).toBe('#f5f3ee');
+  it('derives a palette background from the title with contrasting text', () => {
+    const cover = buildCover('测试小说');
+    expect(COVER_PALETTE).toContain(cover.background);
+    expect(cover.textColor).toBe('#f2ede1');
+    // deterministic
+    expect(buildCover('测试小说').background).toBe(cover.background);
   });
 });

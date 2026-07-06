@@ -14,6 +14,7 @@ describe('resolveTheme', () => {
       expect(theme.heading).toMatch(/^#[0-9a-fA-F]{6}$/);
       expect(theme.subtle).toMatch(/^#[0-9a-fA-F]{6}$/);
       expect(theme.border).toMatch(/^#[0-9a-fA-F]{6}$/);
+      expect(theme.accent).toMatch(/^#[0-9a-fA-F]{6}$/);
     }
   });
 
