@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Pressable,
   StyleSheet,
@@ -67,6 +68,23 @@ export function LibraryScreen({ repo, fs, onOpenBook }: LibraryScreenProps) {
     reload();
   }, [reload]);
 
+  const handleDelete = useCallback(
+    (book: BookRecord) => {
+      Alert.alert('删除这本书？', book.title, [
+        { text: '取消', style: 'cancel' },
+        {
+          text: '删除',
+          style: 'destructive',
+          onPress: async () => {
+            await repo.deleteBook(book.id);
+            await reload();
+          },
+        },
+      ]);
+    },
+    [repo, reload],
+  );
+
   const handleImport = useCallback(async () => {
     setError(null);
     try {
@@ -122,6 +140,8 @@ export function LibraryScreen({ repo, fs, onOpenBook }: LibraryScreenProps) {
             <Pressable
               style={({ pressed }) => [styles.bookRow, pressed && styles.pressed]}
               onPress={() => onOpenBook(item.book.id)}
+              onLongPress={() => handleDelete(item.book)}
+              delayLongPress={400}
             >
               <View style={[styles.cover, { backgroundColor: item.book.coverColor }]} />
               <View style={styles.bookInfo}>

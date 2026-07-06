@@ -299,6 +299,17 @@ describe('level detection', () => {
     const result = parseChapters(text);
     result.chapters.forEach((c) => expect(c.level).toBe(1));
   });
+
+  it('recognizes 第X幕 chapters (e.g. 琥珀之剑)', () => {
+    const text =
+      '第一幕 序章\n内容一。\n第二幕 相遇\n内容二。\n第一百三十九幕 女巫之乱（二）\n内容三。';
+    const result = parseChapters(text);
+    expect(result.strategy).toBe('regex');
+    expect(result.chapters).toHaveLength(3);
+    result.chapters.forEach((c) => expect(c.level).toBe(1));
+    expect(result.chapters[2].title).toContain('第一百三十九幕');
+    expect(result.chapters[2].title).toContain('女巫之乱');
+  });
 });
 
 // ---------------------------------------------------------------------------

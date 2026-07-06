@@ -68,10 +68,11 @@ export interface ParseResult {
 const NUM = '[0-9０-９零一二三四五六七八九十百千万两億]+';
 
 /**
- * Chapter-level line: 第X章, 第X回, 第X节, 第X话
+ * Chapter-level line: 第X章, 第X回, 第X节, 第X话, 第X幕
  * level = 1
+ * (幕 = "act/scene", used by e.g. 琥珀之剑 — surfaced by real-device testing.)
  */
-const CHAPTER_RE = new RegExp(`^第(${NUM})[章回节话]`);
+const CHAPTER_RE = new RegExp(`^第(${NUM})[章回节话幕]`);
 
 /**
  * Volume-level line: 第X卷, 第X集, 第X部, 第X篇, 卷X
