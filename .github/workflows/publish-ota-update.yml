@@ -68,4 +68,8 @@ jobs:
           token: ${{ secrets.EXPO_TOKEN }}
 
       - name: Publish update to production channel
-        run: eas update --branch production --message "${{ github.event.head_commit.message || 'manual OTA' }}" --non-interactive
+        # Pass the commit message via an env var, not inline ${{ }}, so quotes
+        # or newlines in the message can't break the shell argument parsing.
+        env:
+          UPDATE_MESSAGE: ${{ github.event.head_commit.message || 'manual OTA' }}
+        run: eas update --branch production --message "$UPDATE_MESSAGE" --non-interactive
