@@ -37,7 +37,7 @@ export default function App() {
   return (
     <SettingsProvider gateway={settingsGateway}>
       <View style={styles.container}>
-        <StatusBar style="light" />
+        <StatusBar style="dark" />
         {screen.name === 'library' ? (
           <LibraryScreen repo={repo} fs={fs} onOpenBook={openBook} />
         ) : (

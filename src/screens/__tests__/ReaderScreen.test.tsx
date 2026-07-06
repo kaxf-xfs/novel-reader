@@ -34,6 +34,12 @@ function renderReader(
   );
 }
 
+/** Simulate a center tap (touch start+end, no drag) to toggle the bottom bar. */
+function tapSurface(surface: Parameters<typeof fireEvent>[0]) {
+  fireEvent(surface, 'touchStart', { nativeEvent: { touches: [{ pageX: 50, pageY: 300 }] } });
+  fireEvent(surface, 'touchEnd', { nativeEvent: { changedTouches: [{ pageX: 50, pageY: 300 }] } });
+}
+
 describe('ReaderScreen', () => {
   it('renders the first chapter body and shows the title in the top bar', async () => {
     const { repo, fs } = setup();
@@ -66,18 +72,19 @@ describe('ReaderScreen', () => {
     expect(queryByText('加载上一章')).toBeNull();
   });
 
-  it('shows the bottom-bar controls and book progress', async () => {
+  it('reveals the bottom-bar controls after a tap', async () => {
     const { repo, fs } = setup();
     await seedReader(repo, fs, { bookId: 'b4', chapters: CHAPTERS, progressChapterIndex: 0 });
 
-    const { findByText, getByText } = renderReader(repo, fs, 'b4');
+    const { findByText, getByText, queryByText, getByTestId } = renderReader(repo, fs, 'b4');
 
     await findByText('内容一。');
+    expect(queryByText('目录')).toBeNull(); // controls hidden (immersive) by default
+    tapSurface(getByTestId('reader-surface'));
     expect(getByText('目录')).toBeTruthy();
     expect(getByText('上一章')).toBeTruthy();
     expect(getByText('下一章')).toBeTruthy();
     expect(getByText('排版')).toBeTruthy();
-    expect(getByText('0%')).toBeTruthy();
   });
 
   it('renders the system clock and battery in the top bar', async () => {
@@ -90,7 +97,7 @@ describe('ReaderScreen', () => {
     expect(getByText(/^\d{2}:\d{2}$/)).toBeTruthy(); // clock HH:MM
   });
 
-  it('toggles the chrome bars on a tap (touch start+end without a drag)', async () => {
+  it('keeps the slim top bar always visible and toggles the bottom bar on tap', async () => {
     const { repo, fs } = setup();
     await seedReader(repo, fs, { bookId: 'b6', chapters: CHAPTERS, progressChapterIndex: 0 });
 
@@ -98,19 +105,19 @@ describe('ReaderScreen', () => {
 
     await findByText('内容一。');
     const surface = getByTestId('reader-surface');
-    const tap = () => {
-      fireEvent(surface, 'touchStart', { nativeEvent: { touches: [{ pageX: 50, pageY: 300 }] } });
-      fireEvent(surface, 'touchEnd', { nativeEvent: { changedTouches: [{ pageX: 50, pageY: 300 }] } });
-    };
 
-    expect(queryByTestId('reader-topbar')).not.toBeNull(); // visible by default
-    tap();
-    expect(queryByTestId('reader-topbar')).toBeNull(); // hidden
-    tap();
-    expect(queryByTestId('reader-topbar')).not.toBeNull(); // shown again
+    // Slim top bar is always present; bottom bar starts hidden.
+    expect(queryByTestId('reader-topbar')).not.toBeNull();
+    expect(queryByTestId('reader-bottombar')).toBeNull();
+
+    tapSurface(surface);
+    expect(queryByTestId('reader-bottombar')).not.toBeNull(); // shown
+    expect(queryByTestId('reader-topbar')).not.toBeNull(); // still there
+    tapSurface(surface);
+    expect(queryByTestId('reader-bottombar')).toBeNull(); // hidden again
   });
 
-  it('does not toggle the chrome when the touch is a drag (scroll)', async () => {
+  it('does not reveal the bottom bar on a drag (scroll)', async () => {
     const { repo, fs } = setup();
     await seedReader(repo, fs, { bookId: 'b6b', chapters: CHAPTERS, progressChapterIndex: 0 });
 
@@ -123,8 +130,7 @@ describe('ReaderScreen', () => {
     fireEvent(surface, 'touchMove', { nativeEvent: { touches: [{ pageX: 50, pageY: 120 }] } });
     fireEvent(surface, 'touchEnd', { nativeEvent: { changedTouches: [{ pageX: 50, pageY: 120 }] } });
 
-    // A drag must NOT hide the bars.
-    expect(queryByTestId('reader-topbar')).not.toBeNull();
+    expect(queryByTestId('reader-bottombar')).toBeNull();
   });
 
   it('returns to the shelf on a left-edge rightward swipe', async () => {
@@ -163,11 +169,12 @@ describe('ReaderScreen', () => {
     const { repo, fs } = setup();
     await seedReader(repo, fs, { bookId: 'b7', chapters: CHAPTERS, progressChapterIndex: 0 });
 
-    const { findByText, queryByText } = renderReader(repo, fs, 'b7');
+    const { findByText, queryByText, getByTestId } = renderReader(repo, fs, 'b7');
 
     await findByText('内容一。');
     expect(queryByText('主题')).toBeNull();
 
+    tapSurface(getByTestId('reader-surface')); // reveal bottom bar
     fireEvent.press(await findByText('排版'));
     expect(await findByText('主题')).toBeTruthy();
   });
@@ -176,13 +183,11 @@ describe('ReaderScreen', () => {
     const { repo, fs } = setup();
     await seedReader(repo, fs, { bookId: 'b8', chapters: CHAPTERS, progressChapterIndex: 0 });
 
-    const { findByText, getByText, queryByPlaceholderText, findAllByText } = renderReader(
-      repo,
-      fs,
-      'b8',
-    );
+    const { findByText, getByText, getByTestId, queryByPlaceholderText, findAllByText } =
+      renderReader(repo, fs, 'b8');
 
     await findByText('内容一。');
+    tapSurface(getByTestId('reader-surface')); // reveal bottom bar
     fireEvent.press(getByText('目录'));
 
     // TOC is open (search box present); ch3 is not in the initial window, so

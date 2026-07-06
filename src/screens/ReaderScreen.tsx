@@ -25,6 +25,7 @@ import {
   type GestureResponderEvent,
   type ViewToken,
 } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
 
 import type { FileGateway } from '../lib/import/importBook';
 import type { BookRecord, BookRepository, ChapterRecord } from '../lib/import/repository';
@@ -81,7 +82,9 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
 
   const [showSettings, setShowSettings] = useState(false);
   const [showToc, setShowToc] = useState(false);
-  const [chromeVisible, setChromeVisible] = useState(true);
+  // The slim top bar is always visible; tapping the page toggles the bottom
+  // control bar. Start immersive (controls hidden), 起点-style.
+  const [chromeVisible, setChromeVisible] = useState(false);
 
   const [book, setBook] = useState<BookRecord | null>(null);
   const [chapters, setChapters] = useState<ChapterRecord[] | null>(null);
@@ -321,6 +324,8 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
 
   return (
     <View testID="reader-root" style={[styles.container, rs.container]}>
+      {/* Hide the OS status bar so our slim bar owns the top (like 起点). */}
+      <StatusBar hidden />
       {loading ? (
         <ActivityIndicator color={rs.theme.subtle} style={styles.centerSpinner} />
       ) : error !== null ? (
@@ -358,45 +363,47 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
         </View>
       )}
 
-      {chromeVisible && !loading && error === null && (
-        <>
-          <View
-            testID="reader-topbar"
-            style={[styles.topBar, { backgroundColor: rs.theme.background, borderBottomColor: rs.theme.border }]}
-          >
-            <Pressable onPress={onBack} hitSlop={12} style={styles.topSide}>
-              <Text style={[styles.backText, { color: rs.theme.subtle }]}>‹ 书架</Text>
-            </Pressable>
-            <Text style={[styles.topBarTitle, { color: rs.theme.heading }]} numberOfLines={1}>
-              {currentTitle}
-            </Text>
-            <View style={[styles.topSide, styles.statusBox]}>
-              <Text style={[styles.statusText, { color: rs.theme.subtle }]}>{status.clock}</Text>
-              <Text style={[styles.statusText, { color: rs.theme.subtle }]}>{status.battery}</Text>
-            </View>
+      {/* Slim top bar — always visible, replaces the OS status bar. */}
+      {!loading && error === null && (
+        <View
+          testID="reader-topbar"
+          style={[styles.slimBar, { backgroundColor: rs.theme.background, borderBottomColor: rs.theme.border }]}
+        >
+          <Pressable onPress={onBack} hitSlop={14} style={styles.slimBack}>
+            <Text style={[styles.slimArrow, { color: rs.theme.subtle }]}>‹</Text>
+          </Pressable>
+          <Text style={[styles.slimTitle, { color: rs.theme.subtle }]} numberOfLines={1}>
+            {currentTitle}
+          </Text>
+          <Text style={[styles.slimPct, { color: rs.theme.subtle }]}>{bookPercent}%</Text>
+          <View style={styles.slimStatus}>
+            <Text style={[styles.slimStatusText, { color: rs.theme.subtle }]}>{status.clock}</Text>
+            <Text style={[styles.slimStatusText, { color: rs.theme.subtle }]}>{status.battery}</Text>
           </View>
+        </View>
+      )}
 
-          <View
-            testID="reader-bottombar"
-            style={[styles.bottomBar, { backgroundColor: rs.theme.background, borderTopColor: rs.theme.border }]}
-          >
-            <BarButton label="目录" color={rs.theme.text} onPress={() => setShowToc(true)} />
-            <BarButton
-              label="上一章"
-              color={rs.theme.text}
-              disabled={currentChapterIndex <= 0}
-              onPress={() => jumpToChapter(currentChapterIndex - 1)}
-            />
-            <Text style={[styles.percentText, { color: rs.theme.subtle }]}>{bookPercent}%</Text>
-            <BarButton
-              label="下一章"
-              color={rs.theme.text}
-              disabled={!!chapters && currentChapterIndex >= chapters.length - 1}
-              onPress={() => jumpToChapter(currentChapterIndex + 1)}
-            />
-            <BarButton label="排版" color={rs.theme.accent} onPress={() => setShowSettings(true)} />
-          </View>
-        </>
+      {chromeVisible && !loading && error === null && (
+        <View
+          testID="reader-bottombar"
+          style={[styles.bottomBar, { backgroundColor: rs.theme.background, borderTopColor: rs.theme.border }]}
+        >
+          <BarButton label="目录" color={rs.theme.text} onPress={() => setShowToc(true)} />
+          <BarButton
+            label="上一章"
+            color={rs.theme.text}
+            disabled={currentChapterIndex <= 0}
+            onPress={() => jumpToChapter(currentChapterIndex - 1)}
+          />
+          <Text style={[styles.percentText, { color: rs.theme.subtle }]}>{bookPercent}%</Text>
+          <BarButton
+            label="下一章"
+            color={rs.theme.text}
+            disabled={!!chapters && currentChapterIndex >= chapters.length - 1}
+            onPress={() => jumpToChapter(currentChapterIndex + 1)}
+          />
+          <BarButton label="排版" color={rs.theme.accent} onPress={() => setShowSettings(true)} />
+        </View>
       )}
 
       <ReaderSettingsSheet visible={showSettings} onClose={() => setShowSettings(false)} />
@@ -435,23 +442,26 @@ function BarButton({ label, color, onPress, disabled }: BarButtonProps) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#15171c' },
   surface: { flex: 1 },
-  topBar: {
+  // Slim always-on top bar (起点-style): ‹ back · title · % ······ time battery
+  slimBar: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingTop: 56,
-    paddingBottom: 12,
-    paddingHorizontal: 16,
+    paddingTop: 52,
+    paddingBottom: 8,
+    paddingHorizontal: 14,
+    gap: 7,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  topSide: { minWidth: 76 },
-  statusBox: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8 },
-  statusText: { fontSize: 13 },
-  backText: { fontSize: 15 },
-  topBarTitle: { flex: 1, fontSize: 15, fontWeight: '500', textAlign: 'center' },
+  slimBack: { paddingRight: 2 },
+  slimArrow: { fontSize: 22, fontWeight: '400', lineHeight: 22, marginTop: -2 },
+  slimTitle: { flex: 1, fontSize: 12, fontWeight: '500' },
+  slimPct: { fontSize: 11, fontVariant: ['tabular-nums'] },
+  slimStatus: { flexDirection: 'row', gap: 6, marginLeft: 4 },
+  slimStatusText: { fontSize: 11.5, fontVariant: ['tabular-nums'] },
   bottomBar: {
     position: 'absolute',
     bottom: 0,
@@ -472,7 +482,7 @@ const styles = StyleSheet.create({
   centerSpinner: { flex: 1 },
   centerMessage: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   errorText: { color: '#e0a0a0', fontSize: 15, textAlign: 'center' },
-  content: { paddingHorizontal: 24, paddingTop: 96, paddingBottom: 96 },
+  content: { paddingHorizontal: 24, paddingTop: 78, paddingBottom: 48 },
   chapterHeadingSpacing: { fontWeight: '600', marginTop: 28, marginBottom: 16 },
   prevButton: { alignSelf: 'center', paddingVertical: 10, paddingHorizontal: 20, marginBottom: 12 },
   prevButtonText: { fontSize: 14 },
