@@ -6,6 +6,11 @@ import { FakeFileGateway, seedReader } from '../../test-utils/fakes';
 import { renderWithSettings } from '../../test-utils/render';
 import { ReaderScreen } from '../ReaderScreen';
 
+jest.mock('expo-battery', () => ({
+  getBatteryLevelAsync: jest.fn(() => Promise.resolve(0.9)),
+  addBatteryLevelListener: jest.fn(() => ({ remove: jest.fn() })),
+}));
+
 const CHAPTERS = [
   { title: '第一章 开始', body: '内容一。' },
   { title: '第二章 发展', body: '内容二。' },
@@ -18,31 +23,31 @@ function setup() {
   return { repo, fs };
 }
 
+function renderReader(repo: InMemoryBookRepository, fs: FakeFileGateway, bookId: string) {
+  return renderWithSettings(
+    <ReaderScreen repo={repo} fs={fs} bookId={bookId} onBack={() => {}} />,
+  );
+}
+
 describe('ReaderScreen', () => {
-  it('renders the first chapter title and body from the seeded book', async () => {
+  it('renders the first chapter body and shows the title in the top bar', async () => {
     const { repo, fs } = setup();
     await seedReader(repo, fs, { bookId: 'b1', chapters: CHAPTERS, progressChapterIndex: 0 });
 
-    const { findAllByText, findByText } = renderWithSettings(
-      <ReaderScreen repo={repo} fs={fs} bookId="b1" onBack={() => {}} />,
-    );
+    const { findByText, findAllByText } = renderReader(repo, fs, 'b1');
 
+    expect(await findByText('内容一。')).toBeTruthy();
     // Title appears in both the top bar and the chapter heading.
     expect((await findAllByText('第一章 开始')).length).toBeGreaterThanOrEqual(2);
-    expect(await findByText('内容一。')).toBeTruthy();
   });
 
   it('restores reading position at the saved progress chapter', async () => {
     const { repo, fs } = setup();
     await seedReader(repo, fs, { bookId: 'b2', chapters: CHAPTERS, progressChapterIndex: 2 });
 
-    const { findAllByText, findByText } = renderWithSettings(
-      <ReaderScreen repo={repo} fs={fs} bookId="b2" onBack={() => {}} />,
-    );
+    const { findAllByText, findByText } = renderReader(repo, fs, 'b2');
 
-    // Top bar reflects the saved chapter (index 2).
     expect((await findAllByText('第三章 结局')).length).toBeGreaterThanOrEqual(1);
-    // Since we're past chapter 0, the "load previous" affordance is shown.
     expect(await findByText('加载上一章')).toBeTruthy();
   });
 
@@ -50,40 +55,95 @@ describe('ReaderScreen', () => {
     const { repo, fs } = setup();
     await seedReader(repo, fs, { bookId: 'b3', chapters: CHAPTERS, progressChapterIndex: 0 });
 
-    const { findByText, queryByText } = renderWithSettings(
-      <ReaderScreen repo={repo} fs={fs} bookId="b3" onBack={() => {}} />,
-    );
+    const { findByText, queryByText } = renderReader(repo, fs, 'b3');
 
-    await findByText('内容一。'); // wait for initial load
+    await findByText('内容一。');
     expect(queryByText('加载上一章')).toBeNull();
   });
 
-  it('opens the typography sheet when the Aa button is pressed', async () => {
+  it('shows the bottom-bar controls and book progress', async () => {
     const { repo, fs } = setup();
     await seedReader(repo, fs, { bookId: 'b4', chapters: CHAPTERS, progressChapterIndex: 0 });
 
-    const { findByText, queryByText } = renderWithSettings(
-      <ReaderScreen repo={repo} fs={fs} bookId="b4" onBack={() => {}} />,
+    const { findByText, getByText } = renderReader(repo, fs, 'b4');
+
+    await findByText('内容一。');
+    expect(getByText('目录')).toBeTruthy();
+    expect(getByText('上一章')).toBeTruthy();
+    expect(getByText('下一章')).toBeTruthy();
+    expect(getByText('排版')).toBeTruthy();
+    expect(getByText('0%')).toBeTruthy();
+  });
+
+  it('renders the system clock and battery in the top bar', async () => {
+    const { repo, fs } = setup();
+    await seedReader(repo, fs, { bookId: 'b5', chapters: CHAPTERS, progressChapterIndex: 0 });
+
+    const { findByText, getByText } = renderReader(repo, fs, 'b5');
+
+    expect(await findByText('90%')).toBeTruthy(); // mocked battery
+    expect(getByText(/^\d{2}:\d{2}$/)).toBeTruthy(); // clock HH:MM
+  });
+
+  it('toggles the chrome bars when the reading surface is tapped', async () => {
+    const { repo, fs } = setup();
+    await seedReader(repo, fs, { bookId: 'b6', chapters: CHAPTERS, progressChapterIndex: 0 });
+
+    const { findByText, getByTestId, queryByTestId } = renderReader(repo, fs, 'b6');
+
+    await findByText('内容一。');
+    expect(queryByTestId('reader-topbar')).not.toBeNull(); // visible by default
+
+    fireEvent.press(getByTestId('reader-surface'));
+    expect(queryByTestId('reader-topbar')).toBeNull(); // hidden
+
+    fireEvent.press(getByTestId('reader-surface'));
+    expect(queryByTestId('reader-topbar')).not.toBeNull(); // shown again
+  });
+
+  it('opens the typography sheet from the bottom bar', async () => {
+    const { repo, fs } = setup();
+    await seedReader(repo, fs, { bookId: 'b7', chapters: CHAPTERS, progressChapterIndex: 0 });
+
+    const { findByText, queryByText } = renderReader(repo, fs, 'b7');
+
+    await findByText('内容一。');
+    expect(queryByText('主题')).toBeNull();
+
+    fireEvent.press(await findByText('排版'));
+    expect(await findByText('主题')).toBeTruthy();
+  });
+
+  it('opens the TOC and jumps to a selected chapter', async () => {
+    const { repo, fs } = setup();
+    await seedReader(repo, fs, { bookId: 'b8', chapters: CHAPTERS, progressChapterIndex: 0 });
+
+    const { findByText, getByText, queryByPlaceholderText, findAllByText } = renderReader(
+      repo,
+      fs,
+      'b8',
     );
 
     await findByText('内容一。');
-    expect(queryByText('主题')).toBeNull(); // sheet closed
+    fireEvent.press(getByText('目录'));
 
-    fireEvent.press(await findByText('Aa'));
+    // TOC is open (search box present); ch3 is not in the initial window, so
+    // its title appears only in the TOC list.
+    expect(queryByPlaceholderText('搜索章节')).not.toBeNull();
+    fireEvent.press(getByText('第三章 结局'));
 
-    expect(await findByText('主题')).toBeTruthy(); // sheet open
+    // Sheet closes and the reader jumps to chapter 3.
+    await waitFor(() => expect(queryByPlaceholderText('搜索章节')).toBeNull());
+    expect((await findAllByText('第三章 结局')).length).toBeGreaterThanOrEqual(1);
   });
 
   it('applies the theme background color to the reader container', async () => {
     const { repo, fs } = setup();
-    await seedReader(repo, fs, { bookId: 'b5', chapters: CHAPTERS, progressChapterIndex: 0 });
+    await seedReader(repo, fs, { bookId: 'b9', chapters: CHAPTERS, progressChapterIndex: 0 });
 
-    const { findByText, getByTestId } = renderWithSettings(
-      <ReaderScreen repo={repo} fs={fs} bookId="b5" onBack={() => {}} />,
-    );
+    const { findByText, getByTestId } = renderReader(repo, fs, 'b9');
 
     await findByText('内容一。');
-    // Default theme is 'dark'.
     expect(getByTestId('reader-root')).toHaveStyle({
       backgroundColor: resolveTheme('dark').background,
     });

@@ -1,17 +1,17 @@
 /**
- * T4: ReaderScreen — vertical continuous-scroll reader over a sliding
- * window of chapters (current ± 1 initially), backed by byte-range reads
- * so the whole book is never loaded into memory.
+ * T4/T7: ReaderScreen — vertical continuous-scroll reader over a sliding
+ * window of chapters, backed by byte-range reads so the whole book is never
+ * loaded into memory.
  *
- * Scrolling model (pragmatic choice, see AGENTS.md T4 brief):
- *  - Downward: seamless infinite scroll via FlatList onEndReached, which
- *    appends the next chapter's blocks.
- *  - Upward: a "加载上一章" button at the top of the list prepends the
- *    previous chapter's blocks. `maintainVisibleContentPosition` keeps the
- *    scroll position stable when new items are inserted above the fold, so
- *    in practice this reads as seamless too — but it's driven by an
- *    explicit tap rather than by scroll-position detection, which is more
- *    robust than trying to hook top-of-list events.
+ * T7 chrome: top + bottom bars are immersive overlays toggled by tapping the
+ * center of the page. The top bar shows the chapter title + system clock &
+ * battery; the bottom bar carries the thumb-reachable controls (目录 / 上一章 /
+ * 进度 / 下一章 / 排版). A table-of-contents sheet (with search) jumps to any
+ * chapter.
+ *
+ * Scrolling model: downward is seamless infinite scroll (onEndReached appends
+ * the next chapter); upward uses a "加载上一章" header button with
+ * maintainVisibleContentPosition to keep the scroll position stable.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -30,9 +30,12 @@ import type { BookRecord, BookRepository, ChapterRecord } from '../lib/import/re
 import { readChapterText } from '../lib/reader/readChapter';
 import { splitBlocks } from '../lib/reader/blocks';
 import { windowIndices } from '../lib/reader/window';
+import { chapterProgressPercent } from '../lib/reader/progress';
+import { useReaderStatus } from '../lib/reader/useReaderStatus';
 import { computeReaderStyles } from '../lib/settings/styles';
 import { useSettings } from '../settings/SettingsContext';
 import { ReaderSettingsSheet } from '../settings/ReaderSettingsSheet';
+import { TocSheet } from '../reader/TocSheet';
 
 interface ReaderScreenProps {
   repo: BookRepository;
@@ -73,7 +76,11 @@ async function loadChapterBlocks(
 export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
   const { settings } = useSettings();
   const rs = useMemo(() => computeReaderStyles(settings), [settings]);
+  const status = useReaderStatus();
+
   const [showSettings, setShowSettings] = useState(false);
+  const [showToc, setShowToc] = useState(false);
+  const [chromeVisible, setChromeVisible] = useState(true);
 
   const [book, setBook] = useState<BookRecord | null>(null);
   const [chapters, setChapters] = useState<ChapterRecord[] | null>(null);
@@ -88,6 +95,22 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
 
   const chapterTextCache = useRef(new Map<number, string>());
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const listRef = useRef<FlatList<FlatBlockItem>>(null);
+
+  // Load a fresh window centered on `index`; shared by initial load and jumps.
+  const loadWindow = useCallback(
+    async (bk: BookRecord, chs: ChapterRecord[], index: number) => {
+      const indices = windowIndices(chs.length, index, WINDOW_RADIUS);
+      const built: FlatBlockItem[] = [];
+      for (const idx of indices) {
+        built.push(
+          ...(await loadChapterBlocks(fs, bk.normalizedPath, chs[idx], chapterTextCache.current)),
+        );
+      }
+      return { indices, blocks: built };
+    },
+    [fs],
+  );
 
   // ── Initial load: book record + chapters + saved progress ─────────────
   useEffect(() => {
@@ -107,18 +130,7 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
         if (chs.length === 0) throw new Error('这本书没有解析出章节');
 
         const startIndex = Math.min(progress?.chapterIndex ?? 0, chs.length - 1);
-        const indices = windowIndices(chs.length, startIndex, WINDOW_RADIUS);
-
-        const initialBlocks: FlatBlockItem[] = [];
-        for (const idx of indices) {
-          const chBlocks = await loadChapterBlocks(
-            fs,
-            foundBook.normalizedPath,
-            chs[idx],
-            chapterTextCache.current,
-          );
-          initialBlocks.push(...chBlocks);
-        }
+        const { indices, blocks: initialBlocks } = await loadWindow(foundBook, chs, startIndex);
         if (cancelled) return;
 
         setBook(foundBook);
@@ -138,7 +150,7 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
     return () => {
       cancelled = true;
     };
-  }, [bookId, repo, fs]);
+  }, [bookId, repo, fs, loadWindow]);
 
   // Clear any pending debounced save on unmount.
   useEffect(() => {
@@ -185,6 +197,22 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
     }
   }, [chapters, book, lo, fs, loadingAbove]);
 
+  // Jump to a chapter's start: reset the window, scroll to top, save progress.
+  const jumpToChapter = useCallback(
+    async (target: number) => {
+      if (!book || !chapters) return;
+      const clamped = Math.min(Math.max(target, 0), chapters.length - 1);
+      const { indices, blocks: newBlocks } = await loadWindow(book, chapters, clamped);
+      setBlocks(newBlocks);
+      setLo(indices[0]);
+      setHi(indices[indices.length - 1]);
+      setCurrentChapterIndex(clamped);
+      listRef.current?.scrollToOffset({ offset: 0, animated: false });
+      repo.saveProgress({ bookId, chapterIndex: clamped, charOffset: 0, updatedAt: Date.now() });
+    },
+    [book, chapters, loadWindow, repo, bookId],
+  );
+
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 20 }).current;
 
   const onViewableItemsChanged = useRef(
@@ -210,6 +238,16 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
     return chapters[currentChapterIndex]?.title ?? book?.title ?? '';
   }, [chapters, currentChapterIndex, book]);
 
+  const bookPercent = useMemo(() => {
+    const total = chapters?.length ?? 0;
+    return chapterProgressPercent(currentChapterIndex, total) ?? 0;
+  }, [chapters, currentChapterIndex]);
+
+  const tocEntries = useMemo(
+    () => (chapters ?? []).map((c) => ({ index: c.index, title: c.title })),
+    [chapters],
+  );
+
   const listHeader = useMemo(() => {
     if (lo <= 0) return null;
     return (
@@ -234,22 +272,6 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
 
   return (
     <View testID="reader-root" style={[styles.container, rs.container]}>
-      <View style={[styles.topBar, { borderBottomColor: rs.theme.border }]}>
-        <Pressable onPress={onBack} hitSlop={12} style={styles.backButton}>
-          <Text style={[styles.backText, { color: rs.theme.subtle }]}>‹ 书架</Text>
-        </Pressable>
-        <Text style={[styles.topBarTitle, { color: rs.theme.heading }]} numberOfLines={1}>
-          {currentTitle}
-        </Text>
-        <Pressable
-          onPress={() => setShowSettings(true)}
-          hitSlop={12}
-          style={styles.gearButton}
-        >
-          <Text style={[styles.gearText, { color: rs.theme.subtle }]}>Aa</Text>
-        </Pressable>
-      </View>
-
       {loading ? (
         <ActivityIndicator color={rs.theme.subtle} style={styles.centerSpinner} />
       ) : error !== null ? (
@@ -257,69 +279,152 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
           <Text style={styles.errorText}>{error}</Text>
         </View>
       ) : (
-        <FlatList
-          data={blocks}
-          keyExtractor={(item) => item.key}
-          renderItem={({ item }) =>
-            item.isTitle ? (
-              <Text style={[styles.chapterHeadingSpacing, rs.heading]}>{item.text}</Text>
-            ) : (
-              <Text style={rs.paragraph}>{item.text}</Text>
-            )
-          }
-          contentContainerStyle={[styles.content, rs.content]}
-          ListHeaderComponent={listHeader}
-          ListFooterComponent={listFooter}
-          onEndReached={loadMoreBelow}
-          onEndReachedThreshold={0.6}
-          maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
-          onViewableItemsChanged={onViewableItemsChanged}
-          viewabilityConfig={viewabilityConfig}
-        />
+        <Pressable
+          testID="reader-surface"
+          style={styles.surface}
+          onPress={() => setChromeVisible((v) => !v)}
+        >
+          <FlatList
+            ref={listRef}
+            data={blocks}
+            keyExtractor={(item) => item.key}
+            renderItem={({ item }) =>
+              item.isTitle ? (
+                <Text style={[styles.chapterHeadingSpacing, rs.heading]}>{item.text}</Text>
+              ) : (
+                <Text style={rs.paragraph}>{item.text}</Text>
+              )
+            }
+            contentContainerStyle={[styles.content, rs.content]}
+            ListHeaderComponent={listHeader}
+            ListFooterComponent={listFooter}
+            onEndReached={loadMoreBelow}
+            onEndReachedThreshold={0.6}
+            maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+            onViewableItemsChanged={onViewableItemsChanged}
+            viewabilityConfig={viewabilityConfig}
+          />
+        </Pressable>
+      )}
+
+      {chromeVisible && !loading && error === null && (
+        <>
+          <View
+            testID="reader-topbar"
+            style={[styles.topBar, { backgroundColor: rs.theme.background, borderBottomColor: rs.theme.border }]}
+          >
+            <Pressable onPress={onBack} hitSlop={12} style={styles.topSide}>
+              <Text style={[styles.backText, { color: rs.theme.subtle }]}>‹ 书架</Text>
+            </Pressable>
+            <Text style={[styles.topBarTitle, { color: rs.theme.heading }]} numberOfLines={1}>
+              {currentTitle}
+            </Text>
+            <View style={[styles.topSide, styles.statusBox]}>
+              <Text style={[styles.statusText, { color: rs.theme.subtle }]}>{status.clock}</Text>
+              <Text style={[styles.statusText, { color: rs.theme.subtle }]}>{status.battery}</Text>
+            </View>
+          </View>
+
+          <View
+            testID="reader-bottombar"
+            style={[styles.bottomBar, { backgroundColor: rs.theme.background, borderTopColor: rs.theme.border }]}
+          >
+            <BarButton label="目录" color={rs.theme.text} onPress={() => setShowToc(true)} />
+            <BarButton
+              label="上一章"
+              color={rs.theme.text}
+              disabled={currentChapterIndex <= 0}
+              onPress={() => jumpToChapter(currentChapterIndex - 1)}
+            />
+            <Text style={[styles.percentText, { color: rs.theme.subtle }]}>{bookPercent}%</Text>
+            <BarButton
+              label="下一章"
+              color={rs.theme.text}
+              disabled={!!chapters && currentChapterIndex >= chapters.length - 1}
+              onPress={() => jumpToChapter(currentChapterIndex + 1)}
+            />
+            <BarButton label="排版" color={rs.theme.text} onPress={() => setShowSettings(true)} />
+          </View>
+        </>
       )}
 
       <ReaderSettingsSheet visible={showSettings} onClose={() => setShowSettings(false)} />
+      <TocSheet
+        visible={showToc}
+        chapters={tocEntries}
+        currentIndex={currentChapterIndex}
+        onSelect={jumpToChapter}
+        onClose={() => setShowToc(false)}
+      />
     </View>
+  );
+}
+
+interface BarButtonProps {
+  label: string;
+  color: string;
+  onPress: () => void;
+  disabled?: boolean;
+}
+
+function BarButton({ label, color, onPress, disabled }: BarButtonProps) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      style={({ pressed }) => [styles.barButton, pressed && styles.pressed]}
+    >
+      <Text style={[styles.barButtonText, { color }, disabled && styles.barButtonDisabled]}>
+        {label}
+      </Text>
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#15171c' },
+  surface: { flex: 1 },
   topBar: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
     flexDirection: 'row',
     alignItems: 'center',
     paddingTop: 56,
     paddingBottom: 12,
     paddingHorizontal: 16,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#2a2d35',
   },
-  backButton: { minWidth: 64 },
-  gearButton: { minWidth: 64, alignItems: 'flex-end' },
-  gearText: { fontSize: 18, fontWeight: '600' },
+  topSide: { minWidth: 76 },
+  statusBox: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8 },
+  statusText: { fontSize: 13 },
   backText: { fontSize: 15 },
-  topBarTitle: {
-    flex: 1,
-    fontSize: 15,
-    fontWeight: '500',
-    textAlign: 'center',
+  topBarTitle: { flex: 1, fontSize: 15, fontWeight: '500', textAlign: 'center' },
+  bottomBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 34,
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
+  barButton: { paddingVertical: 6, paddingHorizontal: 6 },
+  barButtonText: { fontSize: 14, fontWeight: '500' },
+  barButtonDisabled: { opacity: 0.35 },
+  percentText: { fontSize: 13, minWidth: 44, textAlign: 'center' },
   centerSpinner: { flex: 1 },
   centerMessage: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   errorText: { color: '#e0a0a0', fontSize: 15, textAlign: 'center' },
-  content: { paddingHorizontal: 24, paddingVertical: 24 },
-  chapterHeadingSpacing: {
-    fontWeight: '600',
-    marginTop: 28,
-    marginBottom: 16,
-  },
-  prevButton: {
-    alignSelf: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    marginBottom: 12,
-  },
-  prevButtonText: { color: '#8b8f99', fontSize: 14 },
+  content: { paddingHorizontal: 24, paddingTop: 96, paddingBottom: 96 },
+  chapterHeadingSpacing: { fontWeight: '600', marginTop: 28, marginBottom: 16 },
+  prevButton: { alignSelf: 'center', paddingVertical: 10, paddingHorizontal: 20, marginBottom: 12 },
+  prevButtonText: { fontSize: 14 },
   pressed: { opacity: 0.6 },
   footerSpinner: { marginVertical: 20 },
 });
