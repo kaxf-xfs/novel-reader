@@ -95,6 +95,7 @@ describe('ReaderScreen', () => {
 
     expect(await findByText('90%')).toBeTruthy(); // mocked battery
     expect(getByText(/^\d{2}:\d{2}$/)).toBeTruthy(); // clock HH:MM
+    expect(getByText(/\d+\.\d%/)).toBeTruthy(); // book progress, one decimal, next to the title
   });
 
   it('keeps the slim top bar always visible and toggles the bottom bar on tap', async () => {

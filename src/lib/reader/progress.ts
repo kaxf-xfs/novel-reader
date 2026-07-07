@@ -19,3 +19,21 @@ export function chapterProgressPercent(chapterIndex: number, totalChapters: numb
   const clamped = Math.min(Math.max(chapterIndex, 0), totalChapters - 1);
   return Math.round((clamped / (totalChapters - 1)) * 100);
 }
+
+/**
+ * Same as chapterProgressPercent but keeps `decimals` decimal places (default
+ * 1) — used by the reader's slim top bar (起点-style "…章名 · 77.8%").
+ */
+export function chapterProgressPercentPrecise(
+  chapterIndex: number,
+  totalChapters: number,
+  decimals = 1,
+): number | null {
+  if (totalChapters <= 0) return null;
+  if (totalChapters === 1) return 100;
+
+  const clamped = Math.min(Math.max(chapterIndex, 0), totalChapters - 1);
+  const raw = (clamped / (totalChapters - 1)) * 100;
+  const f = 10 ** decimals;
+  return Math.round(raw * f) / f;
+}

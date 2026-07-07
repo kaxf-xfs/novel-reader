@@ -32,7 +32,7 @@ import type { BookRecord, BookRepository, ChapterRecord } from '../lib/import/re
 import { readChapterText } from '../lib/reader/readChapter';
 import { splitBlocks } from '../lib/reader/blocks';
 import { windowIndices } from '../lib/reader/window';
-import { chapterProgressPercent } from '../lib/reader/progress';
+import { chapterProgressPercent, chapterProgressPercentPrecise } from '../lib/reader/progress';
 import { useReaderStatus } from '../lib/reader/useReaderStatus';
 import { computeReaderStyles } from '../lib/settings/styles';
 import { useSettings } from '../settings/SettingsContext';
@@ -295,6 +295,12 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
     return chapterProgressPercent(currentChapterIndex, total) ?? 0;
   }, [chapters, currentChapterIndex]);
 
+  const bookPercentText = useMemo(() => {
+    const total = chapters?.length ?? 0;
+    const p = chapterProgressPercentPrecise(currentChapterIndex, total);
+    return p == null ? null : p.toFixed(1);
+  }, [chapters, currentChapterIndex]);
+
   const tocEntries = useMemo(
     () => (chapters ?? []).map((c) => ({ index: c.index, title: c.title })),
     [chapters],
@@ -372,10 +378,18 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
           <Pressable onPress={onBack} hitSlop={14} style={styles.slimBack}>
             <Text style={[styles.slimArrow, { color: rs.theme.subtle }]}>‹</Text>
           </Pressable>
-          <Text style={[styles.slimTitle, { color: rs.theme.subtle }]} numberOfLines={1}>
-            {currentTitle}
-          </Text>
-          <Text style={[styles.slimPct, { color: rs.theme.subtle }]}>{bookPercent}%</Text>
+          <View style={styles.slimTitleGroup}>
+            <Text style={[styles.slimTitle, { color: rs.theme.subtle }]} numberOfLines={1}>
+              {currentTitle}
+            </Text>
+            {bookPercentText !== null && (
+              <Text style={[styles.slimPct, { color: rs.theme.subtle }]}>
+                {' · '}
+                {bookPercentText}%
+              </Text>
+            )}
+          </View>
+          <View style={styles.slimSpacer} />
           <View style={styles.slimStatus}>
             <Text style={[styles.slimStatusText, { color: rs.theme.subtle }]}>{status.clock}</Text>
             <Text style={[styles.slimStatusText, { color: rs.theme.subtle }]}>{status.battery}</Text>
@@ -458,9 +472,11 @@ const styles = StyleSheet.create({
   },
   slimBack: { paddingRight: 2 },
   slimArrow: { fontSize: 22, fontWeight: '400', lineHeight: 22, marginTop: -2 },
-  slimTitle: { flex: 1, fontSize: 12, fontWeight: '500' },
+  slimTitleGroup: { flexDirection: 'row', alignItems: 'center', flexShrink: 1, minWidth: 0 },
+  slimTitle: { flexShrink: 1, fontSize: 12, fontWeight: '500' },
   slimPct: { fontSize: 11, fontVariant: ['tabular-nums'] },
-  slimStatus: { flexDirection: 'row', gap: 6, marginLeft: 4 },
+  slimSpacer: { flex: 1, minWidth: 8 },
+  slimStatus: { flexDirection: 'row', gap: 6 },
   slimStatusText: { fontSize: 11.5, fontVariant: ['tabular-nums'] },
   bottomBar: {
     position: 'absolute',
