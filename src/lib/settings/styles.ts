@@ -54,13 +54,13 @@ const THEMES: Record<ThemeId, Theme> = {
     border: '#e5e3dd',
     accent: '#4b6b88',
   },
-  // 起点-style warm off-white (very light, faint pink-cream).
+  // 起点-style warm off-white — nearly white with just a hint of warmth.
   warmWhite: {
-    background: '#f7f0e8',
+    background: '#f8f5f0',
     text: '#35312b',
     heading: '#22201b',
-    subtle: '#9c9385',
-    border: '#e8e0d4',
+    subtle: '#a29a8d',
+    border: '#ebe6dd',
     accent: '#b0674a',
   },
   // Warm sepia (paper yellow).

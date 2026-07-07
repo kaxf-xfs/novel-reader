@@ -55,6 +55,8 @@ interface FlatBlockItem {
 
 const WINDOW_RADIUS = 1;
 const PROGRESS_SAVE_DEBOUNCE_MS = 800;
+/** Two ideographic spaces → 起点-style 2-character first-line paragraph indent. */
+const PARA_INDENT = '　　';
 
 async function loadChapterBlocks(
   fs: FileGateway,
@@ -354,7 +356,10 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
               item.isTitle ? (
                 <Text style={[styles.chapterHeadingSpacing, rs.heading]}>{item.text}</Text>
               ) : (
-                <Text style={rs.paragraph}>{item.text}</Text>
+                <Text style={rs.paragraph}>
+                  {PARA_INDENT}
+                  {item.text}
+                </Text>
               )
             }
             contentContainerStyle={[styles.content, rs.content]}

@@ -47,7 +47,7 @@ describe('ReaderScreen', () => {
 
     const { findByText, findAllByText } = renderReader(repo, fs, 'b1');
 
-    expect(await findByText('内容一。')).toBeTruthy();
+    expect(await findByText(/内容一。/)).toBeTruthy();
     // Title appears in both the top bar and the chapter heading.
     expect((await findAllByText('第一章 开始')).length).toBeGreaterThanOrEqual(2);
   });
@@ -68,7 +68,7 @@ describe('ReaderScreen', () => {
 
     const { findByText, queryByText } = renderReader(repo, fs, 'b3');
 
-    await findByText('内容一。');
+    await findByText(/内容一。/);
     expect(queryByText('加载上一章')).toBeNull();
   });
 
@@ -78,7 +78,7 @@ describe('ReaderScreen', () => {
 
     const { findByText, getByText, queryByText, getByTestId } = renderReader(repo, fs, 'b4');
 
-    await findByText('内容一。');
+    await findByText(/内容一。/);
     expect(queryByText('目录')).toBeNull(); // controls hidden (immersive) by default
     tapSurface(getByTestId('reader-surface'));
     expect(getByText('目录')).toBeTruthy();
@@ -104,7 +104,7 @@ describe('ReaderScreen', () => {
 
     const { findByText, getByTestId, queryByTestId } = renderReader(repo, fs, 'b6');
 
-    await findByText('内容一。');
+    await findByText(/内容一。/);
     const surface = getByTestId('reader-surface');
 
     // Slim top bar is always present; bottom bar starts hidden.
@@ -124,7 +124,7 @@ describe('ReaderScreen', () => {
 
     const { findByText, getByTestId, queryByTestId } = renderReader(repo, fs, 'b6b');
 
-    await findByText('内容一。');
+    await findByText(/内容一。/);
     const surface = getByTestId('reader-surface');
 
     fireEvent(surface, 'touchStart', { nativeEvent: { touches: [{ pageX: 50, pageY: 300 }] } });
@@ -141,7 +141,7 @@ describe('ReaderScreen', () => {
 
     const { findByText, getByTestId } = renderReader(repo, fs, 'bsw', onBack);
 
-    await findByText('内容一。');
+    await findByText(/内容一。/);
     const surface = getByTestId('reader-surface');
     fireEvent(surface, 'touchStart', { nativeEvent: { touches: [{ pageX: 10, pageY: 300 }] } });
     fireEvent(surface, 'touchMove', { nativeEvent: { touches: [{ pageX: 90, pageY: 305 }] } });
@@ -157,7 +157,7 @@ describe('ReaderScreen', () => {
 
     const { findByText, getByTestId } = renderReader(repo, fs, 'bsw2', onBack);
 
-    await findByText('内容一。');
+    await findByText(/内容一。/);
     const surface = getByTestId('reader-surface');
     fireEvent(surface, 'touchStart', { nativeEvent: { touches: [{ pageX: 200, pageY: 300 }] } });
     fireEvent(surface, 'touchMove', { nativeEvent: { touches: [{ pageX: 280, pageY: 305 }] } });
@@ -172,7 +172,7 @@ describe('ReaderScreen', () => {
 
     const { findByText, queryByText, getByTestId } = renderReader(repo, fs, 'b7');
 
-    await findByText('内容一。');
+    await findByText(/内容一。/);
     expect(queryByText('主题')).toBeNull();
 
     tapSurface(getByTestId('reader-surface')); // reveal bottom bar
@@ -187,7 +187,7 @@ describe('ReaderScreen', () => {
     const { findByText, getByText, getByTestId, queryByPlaceholderText, findAllByText } =
       renderReader(repo, fs, 'b8');
 
-    await findByText('内容一。');
+    await findByText(/内容一。/);
     tapSurface(getByTestId('reader-surface')); // reveal bottom bar
     fireEvent.press(getByText('目录'));
 
@@ -207,7 +207,7 @@ describe('ReaderScreen', () => {
 
     const { findByText, getByTestId } = renderReader(repo, fs, 'b9');
 
-    await findByText('内容一。');
+    await findByText(/内容一。/);
     expect(getByTestId('reader-root')).toHaveStyle({
       backgroundColor: resolveTheme('dark').background,
     });
