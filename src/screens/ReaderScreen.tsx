@@ -32,6 +32,7 @@ import type { BookRecord, BookRepository, ChapterRecord } from '../lib/import/re
 import { readChapterText } from '../lib/reader/readChapter';
 import { splitBlocks } from '../lib/reader/blocks';
 import { windowIndices } from '../lib/reader/window';
+import { findBlockArrayIndex } from '../lib/reader/restore';
 import { chapterProgressPercent, chapterProgressPercentPrecise } from '../lib/reader/progress';
 import { useReaderStatus } from '../lib/reader/useReaderStatus';
 import { computeReaderStyles } from '../lib/settings/styles';
@@ -49,6 +50,7 @@ interface ReaderScreenProps {
 interface FlatBlockItem {
   key: string;
   chapterIndex: number;
+  blockIndex: number;
   text: string;
   isTitle: boolean;
 }
@@ -72,6 +74,7 @@ async function loadChapterBlocks(
   return splitBlocks(text).map((blockText, i) => ({
     key: `${chapter.index}-${i}`,
     chapterIndex: chapter.index,
+    blockIndex: i,
     text: blockText,
     isTitle: i === 0,
   }));
@@ -102,6 +105,8 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
   const chapterTextCache = useRef(new Map<number, string>());
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const listRef = useRef<FlatList<FlatBlockItem>>(null);
+  const currentBlockIndexRef = useRef(0);
+  const pendingRestoreRef = useRef<{ chapterIndex: number; blockIndex: number } | null>(null);
 
   // ── Tap-vs-scroll detection for toggling the chrome ───────────────────
   // Passive touch handlers on a plain View wrapper: they observe touches
@@ -193,6 +198,12 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
         setHi(indices[indices.length - 1]);
         setBlocks(initialBlocks);
         setCurrentChapterIndex(startIndex);
+
+        const savedBlock = progress?.charOffset ?? 0;
+        currentBlockIndexRef.current = savedBlock;
+        if (savedBlock > 0) {
+          pendingRestoreRef.current = { chapterIndex: startIndex, blockIndex: savedBlock };
+        }
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : '加载失败');
       } finally {
@@ -212,6 +223,19 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     };
   }, []);
+
+  // Restore the saved in-chapter scroll position once the anchor block is
+  // present in the loaded window.
+  useEffect(() => {
+    const pending = pendingRestoreRef.current;
+    if (!pending || blocks.length === 0) return;
+    const arrayIndex = findBlockArrayIndex(blocks, pending.chapterIndex, pending.blockIndex);
+    pendingRestoreRef.current = null;
+    if (arrayIndex <= 0) return;
+    requestAnimationFrame(() => {
+      listRef.current?.scrollToIndex({ index: arrayIndex, animated: false });
+    });
+  }, [blocks]);
 
   const loadMoreBelow = useCallback(async () => {
     if (!chapters || !book) return;
@@ -274,13 +298,14 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
       if (viewableItems.length === 0) return;
       const topItem = viewableItems[0].item as FlatBlockItem;
       setCurrentChapterIndex(topItem.chapterIndex);
+      currentBlockIndexRef.current = topItem.blockIndex;
 
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
       saveTimeoutRef.current = setTimeout(() => {
         repo.saveProgress({
           bookId,
           chapterIndex: topItem.chapterIndex,
-          charOffset: 0,
+          charOffset: topItem.blockIndex,
           updatedAt: Date.now(),
         });
       }, PROGRESS_SAVE_DEBOUNCE_MS);
@@ -370,6 +395,15 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
             maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
             onViewableItemsChanged={onViewableItemsChanged}
             viewabilityConfig={viewabilityConfig}
+            onScrollToIndexFailed={(info) => {
+              listRef.current?.scrollToOffset({
+                offset: info.averageItemLength * info.index,
+                animated: false,
+              });
+              setTimeout(() => {
+                listRef.current?.scrollToIndex({ index: info.index, animated: false });
+              }, 50);
+            }}
           />
         </View>
       )}

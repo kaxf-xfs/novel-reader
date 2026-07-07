@@ -1,4 +1,4 @@
-import { fireEvent, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, waitFor } from '@testing-library/react-native';
 
 import { InMemoryBookRepository } from '../../lib/import/repository';
 import { resolveTheme } from '../../lib/settings/styles';
@@ -198,6 +198,56 @@ describe('ReaderScreen', () => {
 
     // Sheet closes and the reader jumps to chapter 3.
     await waitFor(() => expect(queryByPlaceholderText('搜索章节')).toBeNull());
+    expect((await findAllByText('第三章 结局')).length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('saves the in-chapter block index (not always 0) as reading progress', async () => {
+    // 纯逻辑保证：顶部 block 的 blockIndex 会被写入 progress.charOffset。
+    // 这里用一个已知窗口断言 findBlockArrayIndex 的反向语义在 reader 中被采用。
+    const { repo, fs } = setup();
+    await seedReader(repo, fs, { bookId: 'bpos', chapters: CHAPTERS, progressChapterIndex: 1 });
+    const saveSpy = jest.spyOn(repo, 'saveProgress');
+
+    const { findByText, UNSAFE_getByType } = renderReader(repo, fs, 'bpos');
+    await findByText(/内容二。/);
+
+    // FlatList/VirtualizedList 的 viewability 计算依赖真实原生 onLayout 测得的
+    // cell 尺寸，在 jsdom/RNTL 下不会真的跑起来——这一点已用探测确认：无论是
+    // 什么都不做、还是手动对 FlatList 或其内部 ScrollView fireEvent.scroll，
+    // onViewableItemsChanged 都不会被调用一次（不是「弱触发」，是完全不触发）。
+    // 为了仍能对「保存路径引用 topItem.blockIndex 而非恒 0」做真实断言，且不
+    // mock/替换 FlatList 或 VirtualizedList 的任何内部逻辑，这里直接拿到
+    // ReaderScreen 传给 FlatList 的、真实的 onViewableItemsChanged 闭包本体，
+    // 用一条从真实渲染出的 blocks 数据里取出的非 0 blockIndex 项调用它——
+    // 等价于「模拟原生上报了这一项当前可见」，之后的保存路径完全是生产代码。
+    const { FlatList } = require('react-native');
+    const flatList = UNSAFE_getByType(FlatList);
+    const topBlock = (flatList.props.data as { chapterIndex: number; blockIndex: number }[]).find(
+      (b) => b.chapterIndex === 1 && b.blockIndex === 1,
+    );
+    expect(topBlock).toBeTruthy();
+    act(() => {
+      flatList.props.onViewableItemsChanged({
+        viewableItems: [{ item: topBlock, key: 'probe', index: 0, isViewable: true }],
+        changed: [],
+      });
+    });
+
+    // 进入第 2 章、模拟其中段落被判定为可见后，会保存进度；chapterIndex 正确、
+    // charOffset 是有效段序号（且非恒 0——见 topBlock.blockIndex === 1）。
+    await waitFor(() => expect(saveSpy).toHaveBeenCalled());
+    const last = saveSpy.mock.calls[saveSpy.mock.calls.length - 1][0];
+    expect(last.chapterIndex).toBe(1);
+    expect(typeof last.charOffset).toBe('number');
+    expect(last.charOffset).toBe(1); // not always 0 — matches the probed blockIndex
+  });
+
+  it('does not crash when restoring a saved mid-chapter block position', async () => {
+    const { repo, fs } = setup();
+    await seedReader(repo, fs, { bookId: 'brestore', chapters: CHAPTERS, progressChapterIndex: 2 });
+    await repo.saveProgress({ bookId: 'brestore', chapterIndex: 2, charOffset: 1, updatedAt: Date.now() });
+
+    const { findAllByText } = renderReader(repo, fs, 'brestore');
     expect((await findAllByText('第三章 结局')).length).toBeGreaterThanOrEqual(1);
   });
 
