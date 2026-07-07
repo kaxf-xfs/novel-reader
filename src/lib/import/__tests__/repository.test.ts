@@ -303,3 +303,43 @@ describe('InMemoryBookRepository – bookmarks', () => {
     expect(await repo.listBookmarks('book-1')).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// updateBookTitle
+// ---------------------------------------------------------------------------
+
+describe('InMemoryBookRepository – updateBookTitle', () => {
+  function seedBook(repo: InMemoryBookRepository, over: Partial<BookRecord> = {}) {
+    const book: BookRecord = {
+      id: 'bk1',
+      title: '旧名',
+      originalName: '旧名.txt',
+      encoding: 'utf-8',
+      sizeBytes: 10,
+      importedAt: 1,
+      coverColor: '#E8D5B7',
+      strategy: 'regex',
+      normalizedPath: 'file:///bk1.txt',
+      ...over,
+    };
+    return repo.addBook(book).then(() => book);
+  }
+
+  it('changes the title and leaves other fields unchanged', async () => {
+    const repo = new InMemoryBookRepository();
+    await seedBook(repo);
+    await repo.updateBookTitle('bk1', '新名');
+    const books = await repo.listBooks();
+    expect(books[0].title).toBe('新名');
+    expect(books[0].originalName).toBe('旧名.txt');
+    expect(books[0].normalizedPath).toBe('file:///bk1.txt');
+  });
+
+  it('is a no-op for an unknown book id', async () => {
+    const repo = new InMemoryBookRepository();
+    await seedBook(repo);
+    await repo.updateBookTitle('nope', '新名');
+    const books = await repo.listBooks();
+    expect(books[0].title).toBe('旧名');
+  });
+});

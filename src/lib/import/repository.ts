@@ -67,6 +67,8 @@ export interface BookRepository {
   getChapters(bookId: string): Promise<ChapterRecord[]>;
   /** Removes the book and all its chapters (cascade). */
   deleteBook(bookId: string): Promise<void>;
+  /** Updates a book's display title. No-op if the book does not exist. */
+  updateBookTitle(bookId: string, title: string): Promise<void>;
   /** Upserts the reading progress for a book. */
   saveProgress(p: ProgressRecord): Promise<void>;
   /** Returns the saved progress for a book, or null if none exists. */
@@ -112,6 +114,12 @@ export class InMemoryBookRepository implements BookRepository {
     this.chapters.delete(bookId);
     this.progress.delete(bookId);
     for (const [id, bm] of this.bookmarks) if (bm.bookId === bookId) this.bookmarks.delete(id);
+  }
+
+  async updateBookTitle(bookId: string, title: string): Promise<void> {
+    const existing = this.books.get(bookId);
+    if (!existing) return;
+    this.books.set(bookId, { ...existing, title });
   }
 
   async saveProgress(p: ProgressRecord): Promise<void> {
