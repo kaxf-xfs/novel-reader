@@ -240,6 +240,11 @@ export class SqliteBookRepository implements BookRepository {
     await db.runAsync('DELETE FROM books WHERE id = ?', bookId);
   }
 
+  async updateBookTitle(bookId: string, title: string): Promise<void> {
+    const db = await this.dbPromise;
+    await db.runAsync('UPDATE books SET title = ? WHERE id = ?', title, bookId);
+  }
+
   async saveProgress(p: ProgressRecord): Promise<void> {
     const db = await this.dbPromise;
     await db.runAsync(
