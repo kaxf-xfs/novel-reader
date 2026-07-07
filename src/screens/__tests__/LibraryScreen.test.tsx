@@ -87,6 +87,29 @@ describe('LibraryScreen', () => {
     expect(await repo.listBooks()).toHaveLength(0);
   });
 
+  it('long-press → 重命名 updates the book title', async () => {
+    const { repo, fs } = makeSetup();
+    // NOTE: brief used 2-char titles '旧名'/'新名', but buildCover() renders the
+    // first 2 chars as the cover label, which collides with a 2-char full title
+    // and makes findByText/queryByText ambiguous (two identical Text nodes).
+    // Using 3-char titles (cover label = first 2 chars, distinct from the full
+    // title) avoids that unrelated collision while keeping the test's intent.
+    await seedReader(repo, fs, { title: '旧书名', chapters: [{ title: '第一章 A', body: 'a' }] });
+    jest.spyOn(Alert, 'alert').mockImplementation((_t, _m, buttons) => {
+      buttons?.find((b) => b.text === '重命名')?.onPress?.();
+    });
+
+    const { findByText, getByTestId, getByPlaceholderText, queryByText } = renderLib(repo, fs);
+
+    fireEvent(await findByText('旧书名'), 'longPress');
+    fireEvent.changeText(getByPlaceholderText('书名'), '新书名');
+    fireEvent.press(getByTestId('rename-save'));
+
+    await waitFor(() => expect(queryByText('新书名')).toBeTruthy());
+    const books = await repo.listBooks();
+    expect(books[0].title).toBe('新书名');
+  });
+
   it('switching to 卡片 hides the hero and persists the choice', async () => {
     const { repo, fs } = makeSetup();
     const gateway = new InMemorySettingsGateway();

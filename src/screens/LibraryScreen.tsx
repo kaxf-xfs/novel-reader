@@ -6,7 +6,7 @@
  *    followed by a clean list of the rest.
  *  - cards: every book as a floating card with a progress bar.
  *
- * Import (top-right) adds a .txt; long-press a book to delete.
+ * Import (top-right) adds a .txt; long-press a book for a 重命名/删除 menu.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -31,6 +31,7 @@ import { selectHero } from '../lib/library/hero';
 import { formatRelativeTime } from '../lib/library/time';
 import type { LibraryLayout } from '../lib/settings/settings';
 import { useSettings } from '../settings/SettingsContext';
+import { RenameBookModal } from '../library/RenameBookModal';
 
 interface LibraryScreenProps {
   repo: BookRepository;
@@ -87,6 +88,7 @@ export function LibraryScreen({ repo, fs, onOpenBook }: LibraryScreenProps) {
   const [loadingList, setLoadingList] = useState(true);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [renamingBook, setRenamingBook] = useState<BookRecord | null>(null);
 
   const reload = useCallback(async () => {
     setLoadingList(true);
@@ -101,10 +103,10 @@ export function LibraryScreen({ repo, fs, onOpenBook }: LibraryScreenProps) {
     reload();
   }, [reload]);
 
-  const handleDelete = useCallback(
+  const handleBookMenu = useCallback(
     (book: BookRecord) => {
-      Alert.alert('删除这本书？', book.title, [
-        { text: '取消', style: 'cancel' },
+      Alert.alert(book.title, undefined, [
+        { text: '重命名', onPress: () => setRenamingBook(book) },
         {
           text: '删除',
           style: 'destructive',
@@ -113,9 +115,21 @@ export function LibraryScreen({ repo, fs, onOpenBook }: LibraryScreenProps) {
             await reload();
           },
         },
+        { text: '取消', style: 'cancel' },
       ]);
     },
     [repo, reload],
+  );
+
+  const handleRenameSave = useCallback(
+    async (title: string) => {
+      if (renamingBook) {
+        await repo.updateBookTitle(renamingBook.id, title);
+        await reload();
+      }
+      setRenamingBook(null);
+    },
+    [renamingBook, repo, reload],
   );
 
   const handleImport = useCallback(async () => {
@@ -148,7 +162,7 @@ export function LibraryScreen({ repo, fs, onOpenBook }: LibraryScreenProps) {
         <Pressable
           style={({ pressed }) => [styles.row, pressed && styles.pressed]}
           onPress={() => openBook(item.book)}
-          onLongPress={() => handleDelete(item.book)}
+          onLongPress={() => handleBookMenu(item.book)}
           delayLongPress={400}
         >
           <View style={[styles.rowCover, { backgroundColor: cover.background }]}>
@@ -171,7 +185,7 @@ export function LibraryScreen({ repo, fs, onOpenBook }: LibraryScreenProps) {
         </Pressable>
       );
     },
-    [openBook, handleDelete],
+    [openBook, handleBookMenu],
   );
 
   const renderCard = useCallback(
@@ -182,7 +196,7 @@ export function LibraryScreen({ repo, fs, onOpenBook }: LibraryScreenProps) {
         <Pressable
           style={({ pressed }) => [styles.card, pressed && styles.pressed]}
           onPress={() => openBook(item.book)}
-          onLongPress={() => handleDelete(item.book)}
+          onLongPress={() => handleBookMenu(item.book)}
           delayLongPress={400}
         >
           <View style={[styles.cardCover, { backgroundColor: cover.background }]}>
@@ -205,7 +219,7 @@ export function LibraryScreen({ repo, fs, onOpenBook }: LibraryScreenProps) {
         </Pressable>
       );
     },
-    [openBook, handleDelete],
+    [openBook, handleBookMenu],
   );
 
   const heroHeader = useMemo(() => {
@@ -216,7 +230,7 @@ export function LibraryScreen({ repo, fs, onOpenBook }: LibraryScreenProps) {
           <Pressable
             style={({ pressed }) => [styles.hero, pressed && styles.pressedSoft]}
             onPress={() => openBook(hero.book)}
-            onLongPress={() => handleDelete(hero.book)}
+            onLongPress={() => handleBookMenu(hero.book)}
             delayLongPress={400}
           >
             <View style={[styles.heroCover, { backgroundColor: buildCover(hero.book.title).background }]}>
@@ -253,7 +267,7 @@ export function LibraryScreen({ repo, fs, onOpenBook }: LibraryScreenProps) {
         </View>
       </View>
     );
-  }, [heroSplit.hero, items.length, openBook, handleDelete]);
+  }, [heroSplit.hero, items.length, openBook, handleBookMenu]);
 
   const content = () => {
     if (loadingList) return <ActivityIndicator color={ACCENT} style={styles.loading} />;
@@ -308,6 +322,12 @@ export function LibraryScreen({ repo, fs, onOpenBook }: LibraryScreenProps) {
 
       {error !== null && <Text style={styles.error}>{error}</Text>}
       {content()}
+      <RenameBookModal
+        visible={renamingBook !== null}
+        book={renamingBook}
+        onSave={handleRenameSave}
+        onClose={() => setRenamingBook(null)}
+      />
     </View>
   );
 }
