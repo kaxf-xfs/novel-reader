@@ -313,4 +313,29 @@ describe('ReaderScreen', () => {
 
     expect((await findAllByText('第三章 结局')).length).toBeGreaterThanOrEqual(1);
   });
+
+  it('preserves the in-chapter block position when jumping to a bookmark', async () => {
+    const { repo, fs } = setup();
+    await seedReader(repo, fs, { bookId: 'bbm3', chapters: CHAPTERS, progressChapterIndex: 0 });
+    // A bookmark deep in chapter 3 (block 1 = the body paragraph, not the title).
+    await repo.addBookmark({
+      id: 'y', bookId: 'bbm3', chapterIndex: 2, blockIndex: 1,
+      snippet: '内容三。', createdAt: Date.now(),
+    });
+    const saveSpy = jest.spyOn(repo, 'saveProgress');
+
+    const { findByText, getByText, getByTestId } = renderReader(repo, fs, 'bbm3');
+    await findByText(/内容一。/);
+
+    tapSurface(getByTestId('reader-surface'));
+    fireEvent.press(getByText('书签'));
+    fireEvent.press(await findByText('内容三。'));
+
+    // The jump must persist the exact block (charOffset), not reset to 0,
+    // so the position is remembered on next open.
+    await waitFor(() => {
+      const call = saveSpy.mock.calls.find(([p]) => p.chapterIndex === 2);
+      expect(call?.[0].charOffset).toBe(1);
+    });
+  });
 });

@@ -31,7 +31,6 @@ import type { FileGateway } from '../lib/import/importBook';
 import type { Bookmark, BookRecord, BookRepository, ChapterRecord } from '../lib/import/repository';
 import { readChapterText } from '../lib/reader/readChapter';
 import { splitBlocks } from '../lib/reader/blocks';
-import { windowIndices } from '../lib/reader/window';
 import { findBlockArrayIndex } from '../lib/reader/restore';
 import { chapterProgressPercent, chapterProgressPercentPrecise } from '../lib/reader/progress';
 import { makeSnippet } from '../lib/reader/snippet';
@@ -103,6 +102,9 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
   const [lo, setLo] = useState(0);
   const [hi, setHi] = useState(0);
   const [currentChapterIndex, setCurrentChapterIndex] = useState(0);
+  // While true, the reading surface is masked (opacity 0) so the user never
+  // sees the list settle from the top to a restored/jumped position.
+  const [restoring, setRestoring] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loadingAbove, setLoadingAbove] = useState(false);
@@ -113,6 +115,7 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
   const listRef = useRef<FlatList<FlatBlockItem>>(null);
   const currentBlockIndexRef = useRef(0);
   const pendingRestoreRef = useRef<{ chapterIndex: number; blockIndex: number } | null>(null);
+  const revealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Tap-vs-scroll detection for toggling the chrome ───────────────────
   // Passive touch handlers on a plain View wrapper: they observe touches
@@ -162,10 +165,15 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
     [onBack],
   );
 
-  // Load a fresh window centered on `index`; shared by initial load and jumps.
+  // Load a forward window STARTING at `index` (the target chapter sits at the
+  // top of the list, so an open/jump lands exactly on that chapter — not the
+  // previous one). Upward chapters load on demand via the "加载上一章" header.
   const loadWindow = useCallback(
     async (bk: BookRecord, chs: ChapterRecord[], index: number) => {
-      const indices = windowIndices(chs.length, index, WINDOW_RADIUS);
+      const start = Math.min(Math.max(index, 0), chs.length - 1);
+      const end = Math.min(chs.length - 1, start + WINDOW_RADIUS);
+      const indices: number[] = [];
+      for (let i = start; i <= end; i++) indices.push(i);
       const built: FlatBlockItem[] = [];
       for (const idx of indices) {
         built.push(
@@ -208,7 +216,10 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
         const savedBlock = progress?.charOffset ?? 0;
         currentBlockIndexRef.current = savedBlock;
         if (savedBlock > 0) {
+          // Mid-chapter position: mask the surface and let the restore effect
+          // scroll to the block once it is rendered (no visible scroll journey).
           pendingRestoreRef.current = { chapterIndex: startIndex, blockIndex: savedBlock };
+          setRestoring(true);
         }
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : '加载失败');
@@ -223,24 +234,33 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
     };
   }, [bookId, repo, fs, loadWindow]);
 
-  // Clear any pending debounced save on unmount.
+  // Clear any pending timers on unmount.
   useEffect(() => {
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+      if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
     };
   }, []);
 
-  // Restore the saved in-chapter scroll position once the anchor block is
-  // present in the loaded window.
+  // Position the list at the pending anchor (initial restore OR a jump) once
+  // the target block is present, then reveal the surface. The reveal timer is
+  // NOT tied to this effect's cleanup, so an unrelated `blocks` change (e.g. a
+  // chapter append) can't cancel it and leave the surface stuck hidden.
   useEffect(() => {
     const pending = pendingRestoreRef.current;
     if (!pending || blocks.length === 0) return;
     const arrayIndex = findBlockArrayIndex(blocks, pending.chapterIndex, pending.blockIndex);
     pendingRestoreRef.current = null;
-    if (arrayIndex <= 0) return;
     requestAnimationFrame(() => {
-      listRef.current?.scrollToIndex({ index: arrayIndex, animated: false });
+      if (arrayIndex > 0) {
+        listRef.current?.scrollToIndex({ index: arrayIndex, animated: false });
+      } else {
+        // block 0 (or anchor missing) → the chapter sits at the top already.
+        listRef.current?.scrollToOffset({ offset: 0, animated: false });
+      }
     });
+    if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
+    revealTimerRef.current = setTimeout(() => setRestoring(false), 120);
   }, [blocks]);
 
   const loadMoreBelow = useCallback(async () => {
@@ -281,20 +301,27 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
     }
   }, [chapters, book, lo, fs, loadingAbove]);
 
-  // Jump to a chapter's start: reset the window, scroll to top, save progress.
+  // Jump to a chapter (optionally to a specific in-chapter block, e.g. a
+  // bookmark). Rebuild the forward window and let the restore effect land the
+  // list on the anchor while the surface is masked — no visible scroll.
   const jumpToChapter = useCallback(
-    async (target: number) => {
+    async (target: number, targetBlockIndex = 0) => {
       if (!book || !chapters) return;
       const clamped = Math.min(Math.max(target, 0), chapters.length - 1);
       const { indices, blocks: newBlocks } = await loadWindow(book, chapters, clamped);
+      pendingRestoreRef.current = { chapterIndex: clamped, blockIndex: targetBlockIndex };
+      setRestoring(true);
       setBlocks(newBlocks);
       setLo(indices[0]);
       setHi(indices[indices.length - 1]);
       setCurrentChapterIndex(clamped);
-      if (!pendingRestoreRef.current) {
-        listRef.current?.scrollToOffset({ offset: 0, animated: false });
-      }
-      repo.saveProgress({ bookId, chapterIndex: clamped, charOffset: 0, updatedAt: Date.now() });
+      currentBlockIndexRef.current = targetBlockIndex;
+      repo.saveProgress({
+        bookId,
+        chapterIndex: clamped,
+        charOffset: targetBlockIndex,
+        updatedAt: Date.now(),
+      });
     },
     [book, chapters, loadWindow, repo, bookId],
   );
@@ -333,11 +360,10 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
     setBookmarks(await repo.listBookmarks(bookId));
   }, [repo, bookId, currentChapterIndex, blocks]);
 
-  // 回跳：跳章（Task 6 的恢复 effect 会把 pendingRestore 用于章内定位）
+  // 回跳：跳到书签的章 + 章内段落（jumpToChapter 内部会设 pendingRestore + 遮罩）
   const jumpToBookmark = useCallback(
     (chapterIndex: number, blockIndex: number) => {
-      pendingRestoreRef.current = { chapterIndex, blockIndex };
-      jumpToChapter(chapterIndex);
+      jumpToChapter(chapterIndex, blockIndex);
     },
     [jumpToChapter],
   );
@@ -427,7 +453,7 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
       ) : (
         <View
           testID="reader-surface"
-          style={styles.surface}
+          style={[styles.surface, restoring && styles.surfaceHidden]}
           onTouchStart={onSurfaceTouchStart}
           onTouchMove={onSurfaceTouchMove}
           onTouchEnd={onSurfaceTouchEnd}
@@ -573,6 +599,8 @@ function BarButton({ label, color, onPress, disabled }: BarButtonProps) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#15171c' },
   surface: { flex: 1 },
+  // Masked while the list settles onto a restored/jumped anchor.
+  surfaceHidden: { opacity: 0 },
   // Slim always-on top bar (起点-style): ‹ back · title · % ······ time battery
   slimBar: {
     position: 'absolute',
