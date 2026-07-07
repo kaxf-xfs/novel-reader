@@ -57,11 +57,11 @@ const THEMES: Record<ThemeId, Theme> = {
   // 起点-style warm eye-care paper — a soft yellow-warm off-white (the tone
   // 起点 shows after enabling 护眼), lighter than 米黄 but clearly warmer than paper.
   warmWhite: {
-    background: '#f7f2e6',
+    background: '#f5eed9',
     text: '#35312b',
     heading: '#22201b',
-    subtle: '#a09781',
-    border: '#eae2d2',
+    subtle: '#9e9075',
+    border: '#e8dfc8',
     accent: '#b0674a',
   },
   // Warm sepia (paper yellow).
