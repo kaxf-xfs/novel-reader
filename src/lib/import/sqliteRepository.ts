@@ -32,6 +32,15 @@
  *     updatedAt    INTEGER NOT NULL
  *   )
  *
+ *   bookmarks (
+ *     id           TEXT PRIMARY KEY,
+ *     bookId       TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+ *     chapterIndex INTEGER NOT NULL,
+ *     blockIndex   INTEGER NOT NULL,
+ *     snippet      TEXT NOT NULL,
+ *     createdAt    INTEGER NOT NULL
+ *   )
+ *
  * NOT unit-tested (native SQLite doesn't run in the Jest/Node environment).
  * Type correctness is guaranteed by tsc strict mode.
  *
@@ -42,7 +51,13 @@
 
 import { openDatabaseAsync } from 'expo-sqlite';
 import type { SQLiteDatabase } from 'expo-sqlite';
-import type { BookRecord, ChapterRecord, BookRepository, ProgressRecord } from './repository';
+import type {
+  BookRecord,
+  ChapterRecord,
+  BookRepository,
+  ProgressRecord,
+  Bookmark,
+} from './repository';
 
 const DB_NAME = 'novel-reader.db';
 
@@ -92,6 +107,18 @@ const CREATE_PROGRESS_TABLE = `
   );
 `;
 
+const CREATE_BOOKMARKS_TABLE = `
+  CREATE TABLE IF NOT EXISTS bookmarks (
+    id           TEXT PRIMARY KEY,
+    bookId       TEXT NOT NULL,
+    chapterIndex INTEGER NOT NULL,
+    blockIndex   INTEGER NOT NULL,
+    snippet      TEXT NOT NULL,
+    createdAt    INTEGER NOT NULL,
+    FOREIGN KEY (bookId) REFERENCES books(id) ON DELETE CASCADE
+  );
+`;
+
 // ---------------------------------------------------------------------------
 // SqliteBookRepository
 // ---------------------------------------------------------------------------
@@ -110,7 +137,11 @@ export class SqliteBookRepository implements BookRepository {
     // Enable foreign-key enforcement.
     await db.execAsync('PRAGMA foreign_keys = ON;');
     await db.execAsync(
-      CREATE_BOOKS_TABLE + CREATE_CHAPTERS_TABLE + CREATE_CHAPTERS_INDEX + CREATE_PROGRESS_TABLE,
+      CREATE_BOOKS_TABLE +
+        CREATE_CHAPTERS_TABLE +
+        CREATE_CHAPTERS_INDEX +
+        CREATE_PROGRESS_TABLE +
+        CREATE_BOOKMARKS_TABLE,
     );
     return db;
   }
@@ -232,5 +263,48 @@ export class SqliteBookRepository implements BookRepository {
       charOffset: row.charOffset,
       updatedAt: row.updatedAt,
     };
+  }
+
+  async addBookmark(b: Bookmark): Promise<void> {
+    const db = await this.dbPromise;
+    await db.runAsync(
+      `INSERT OR REPLACE INTO bookmarks (id, bookId, chapterIndex, blockIndex, snippet, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      b.id,
+      b.bookId,
+      b.chapterIndex,
+      b.blockIndex,
+      b.snippet,
+      b.createdAt,
+    );
+  }
+
+  async listBookmarks(bookId: string): Promise<Bookmark[]> {
+    const db = await this.dbPromise;
+    type Row = {
+      id: string;
+      bookId: string;
+      chapterIndex: number;
+      blockIndex: number;
+      snippet: string;
+      createdAt: number;
+    };
+    const rows = await db.getAllAsync<Row>(
+      'SELECT * FROM bookmarks WHERE bookId = ? ORDER BY createdAt DESC',
+      bookId,
+    );
+    return rows.map((r) => ({
+      id: r.id,
+      bookId: r.bookId,
+      chapterIndex: r.chapterIndex,
+      blockIndex: r.blockIndex,
+      snippet: r.snippet,
+      createdAt: r.createdAt,
+    }));
+  }
+
+  async deleteBookmark(id: string): Promise<void> {
+    const db = await this.dbPromise;
+    await db.runAsync('DELETE FROM bookmarks WHERE id = ?', id);
   }
 }
