@@ -2,7 +2,7 @@
  * 增量1: 进度拖动跳转浮层。原生 slider 不在 ipa，故用 RN 内置 PanResponder
  * 自绘轨道。拖动实时预览目标章标题，松手跳转。
  */
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Modal,
   PanResponder,
@@ -41,14 +41,18 @@ export function ProgressJumpSheet({
   const trackWidthRef = useRef(1);
   const trackLeftRef = useRef(0);
 
-  // 每次打开时把预览重置到当前章。
-  const openedIndex = useRef(currentIndex);
-  if (visible && openedIndex.current !== currentIndex && previewIndex === currentIndex) {
-    openedIndex.current = currentIndex;
-  }
+  // 每次打开时（或打开期间当前章变化时）把预览重置到当前章。
+  useEffect(() => {
+    if (visible) setPreviewIndex(currentIndex);
+  }, [visible, currentIndex]);
 
   const previewRef = useRef(previewIndex);
   previewRef.current = previewIndex;
+
+  const onJumpRef = useRef(onJump);
+  onJumpRef.current = onJump;
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   const setFromX = (pageX: number) => {
     const f = (pageX - trackLeftRef.current) / trackWidthRef.current;
@@ -63,12 +67,11 @@ export function ProgressJumpSheet({
         onPanResponderGrant: (e) => setFromX(e.nativeEvent.pageX),
         onPanResponderMove: (e) => setFromX(e.nativeEvent.pageX),
         onPanResponderRelease: () => {
-          // previewRef 持有最新预览下标，规避闭包捕获旧值。
-          onJump(previewRef.current);
-          onClose();
+          // previewRef/onJumpRef/onCloseRef 持有最新值，规避闭包捕获旧值。
+          onJumpRef.current(previewRef.current);
+          onCloseRef.current();
         },
       }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [total],
   );
 
