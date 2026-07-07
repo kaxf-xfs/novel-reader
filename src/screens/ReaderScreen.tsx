@@ -120,6 +120,21 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
   // moment the anchor reaches the top (rather than after a guessed delay).
   const restoreTargetRef = useRef<{ chapterIndex: number; blockIndex: number } | null>(null);
   const revealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Mirrors `restoring` for use inside async callbacks, plus a mounted flag so a
+  // late timer/rAF reveal never setState after unmount (avoids act() warnings
+  // and no-op reveals when the surface was never masked).
+  const restoringRef = useRef(false);
+  const mountedRef = useRef(true);
+
+  const mask = useCallback(() => {
+    restoringRef.current = true;
+    setRestoring(true);
+  }, []);
+  const reveal = useCallback(() => {
+    if (!mountedRef.current || !restoringRef.current) return;
+    restoringRef.current = false;
+    setRestoring(false);
+  }, []);
 
   // ── Tap-vs-scroll detection for toggling the chrome ───────────────────
   // Passive touch handlers on a plain View wrapper: they observe touches
@@ -223,7 +238,7 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
           // Mid-chapter position: mask the surface and let the restore effect
           // scroll to the block once it is rendered (no visible scroll journey).
           pendingRestoreRef.current = { chapterIndex: startIndex, blockIndex: savedBlock };
-          setRestoring(true);
+          mask();
         }
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : '加载失败');
@@ -241,6 +256,7 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
   // Clear any pending timers on unmount.
   useEffect(() => {
     return () => {
+      mountedRef.current = false;
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
       if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
     };
@@ -267,13 +283,13 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
       if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
       revealTimerRef.current = setTimeout(() => {
         restoreTargetRef.current = null;
-        setRestoring(false);
+        reveal();
       }, 1500);
     } else {
       // block 0 (or anchor missing) → the chapter is already at the top.
       requestAnimationFrame(() => {
         listRef.current?.scrollToOffset({ offset: 0, animated: false });
-        setRestoring(false);
+        reveal();
       });
     }
   }, [blocks]);
@@ -327,7 +343,7 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
       pendingRestoreRef.current = { chapterIndex: clamped, blockIndex: targetBlockIndex };
       // Chapter-start jumps land at the top with no scroll, so no mask needed;
       // only mask when we have to scroll down into the chapter (a bookmark).
-      if (targetBlockIndex > 0) setRestoring(true);
+      if (targetBlockIndex > 0) mask();
       setBlocks(newBlocks);
       setLo(indices[0]);
       setHi(indices[indices.length - 1]);
@@ -413,7 +429,7 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
         if (arrived) {
           restoreTargetRef.current = null;
           if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
-          setRestoring(false);
+          reveal();
         }
         return;
       }
