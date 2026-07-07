@@ -275,4 +275,42 @@ describe('ReaderScreen', () => {
       backgroundColor: resolveTheme('dark').background,
     });
   });
+
+  it('adds a bookmark for the current position and lists it', async () => {
+    const { repo, fs } = setup();
+    await seedReader(repo, fs, { bookId: 'bbm', chapters: CHAPTERS, progressChapterIndex: 0 });
+    const addSpy = jest.spyOn(repo, 'addBookmark');
+
+    const { findByText, getByText, getByTestId } = renderReader(repo, fs, 'bbm');
+    await findByText(/内容一。/);
+
+    tapSurface(getByTestId('reader-surface'));   // reveal bottom bar
+    fireEvent.press(getByText('书签'));           // open bookmarks sheet
+    expect(getByTestId('bookmarks-sheet')).toBeTruthy();
+
+    fireEvent.press(getByTestId('bookmark-add')); // 收藏当前位置
+    await waitFor(() => expect(addSpy).toHaveBeenCalled());
+    const added = addSpy.mock.calls[0][0];
+    expect(added.bookId).toBe('bbm');
+    expect(typeof added.chapterIndex).toBe('number');
+    expect(typeof added.blockIndex).toBe('number');
+  });
+
+  it('jumps to a bookmarked chapter when its row is tapped', async () => {
+    const { repo, fs } = setup();
+    await seedReader(repo, fs, { bookId: 'bbm2', chapters: CHAPTERS, progressChapterIndex: 0 });
+    await repo.addBookmark({
+      id: 'x', bookId: 'bbm2', chapterIndex: 2, blockIndex: 0,
+      snippet: '内容三。', createdAt: Date.now(),
+    });
+
+    const { findByText, getByText, getByTestId, findAllByText } = renderReader(repo, fs, 'bbm2');
+    await findByText(/内容一。/);
+
+    tapSurface(getByTestId('reader-surface'));
+    fireEvent.press(getByText('书签'));
+    fireEvent.press(await findByText('内容三。')); // the bookmark row snippet
+
+    expect((await findAllByText('第三章 结局')).length).toBeGreaterThanOrEqual(1);
+  });
 });

@@ -28,18 +28,20 @@ import {
 import { StatusBar } from 'expo-status-bar';
 
 import type { FileGateway } from '../lib/import/importBook';
-import type { BookRecord, BookRepository, ChapterRecord } from '../lib/import/repository';
+import type { Bookmark, BookRecord, BookRepository, ChapterRecord } from '../lib/import/repository';
 import { readChapterText } from '../lib/reader/readChapter';
 import { splitBlocks } from '../lib/reader/blocks';
 import { windowIndices } from '../lib/reader/window';
 import { findBlockArrayIndex } from '../lib/reader/restore';
 import { chapterProgressPercent, chapterProgressPercentPrecise } from '../lib/reader/progress';
+import { makeSnippet } from '../lib/reader/snippet';
 import { useReaderStatus } from '../lib/reader/useReaderStatus';
 import { computeReaderStyles } from '../lib/settings/styles';
 import { useSettings } from '../settings/SettingsContext';
 import { ReaderSettingsSheet } from '../settings/ReaderSettingsSheet';
 import { TocSheet } from '../reader/TocSheet';
 import { ProgressJumpSheet } from '../reader/ProgressJumpSheet';
+import { BookmarksSheet } from '../reader/BookmarksSheet';
 
 interface ReaderScreenProps {
   repo: BookRepository;
@@ -89,6 +91,8 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
   const [showSettings, setShowSettings] = useState(false);
   const [showToc, setShowToc] = useState(false);
   const [showJump, setShowJump] = useState(false);
+  const [showBookmarks, setShowBookmarks] = useState(false);
+  const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
   // The slim top bar is always visible; tapping the page toggles the bottom
   // control bar. Start immersive (controls hidden), 起点-style.
   const [chromeVisible, setChromeVisible] = useState(false);
@@ -287,10 +291,63 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
       setLo(indices[0]);
       setHi(indices[indices.length - 1]);
       setCurrentChapterIndex(clamped);
-      listRef.current?.scrollToOffset({ offset: 0, animated: false });
+      if (!pendingRestoreRef.current) {
+        listRef.current?.scrollToOffset({ offset: 0, animated: false });
+      }
       repo.saveProgress({ bookId, chapterIndex: clamped, charOffset: 0, updatedAt: Date.now() });
     },
     [book, chapters, loadWindow, repo, bookId],
+  );
+
+  // 打开书签列表时刷新（先展示 sheet，再异步填充列表，避免列表加载延迟阻塞开关反馈）
+  const openBookmarks = useCallback(async () => {
+    setShowBookmarks(true);
+    setBookmarks(await repo.listBookmarks(bookId));
+  }, [repo, bookId]);
+
+  // 章标题查表（供列表展示）
+  const chapterTitles = useMemo(() => {
+    const map: Record<number, string> = {};
+    for (const c of chapters ?? []) map[c.index] = c.title;
+    return map;
+  }, [chapters]);
+
+  // 收藏当前位置：取当前顶部锚点 + 该段摘要
+  const addCurrentBookmark = useCallback(async () => {
+    const ci = currentChapterIndex;
+    const bi = currentBlockIndexRef.current;
+    const item = blocks.find((b) => b.chapterIndex === ci && b.blockIndex === bi);
+    // 标题块无正文内容时，退回到该章首个正文段作摘要
+    const snippetSource =
+      item && !item.isTitle
+        ? item.text
+        : blocks.find((b) => b.chapterIndex === ci && !b.isTitle)?.text ?? '';
+    await repo.addBookmark({
+      id: `bm_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      bookId,
+      chapterIndex: ci,
+      blockIndex: bi,
+      snippet: makeSnippet(snippetSource),
+      createdAt: Date.now(),
+    });
+    setBookmarks(await repo.listBookmarks(bookId));
+  }, [repo, bookId, currentChapterIndex, blocks]);
+
+  // 回跳：跳章（Task 6 的恢复 effect 会把 pendingRestore 用于章内定位）
+  const jumpToBookmark = useCallback(
+    (chapterIndex: number, blockIndex: number) => {
+      pendingRestoreRef.current = { chapterIndex, blockIndex };
+      jumpToChapter(chapterIndex);
+    },
+    [jumpToChapter],
+  );
+
+  const deleteBookmark = useCallback(
+    async (id: string) => {
+      await repo.deleteBookmark(id);
+      setBookmarks(await repo.listBookmarks(bookId));
+    },
+    [repo, bookId],
   );
 
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 20 }).current;
@@ -444,6 +501,7 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
           style={[styles.bottomBar, { backgroundColor: rs.theme.background, borderTopColor: rs.theme.border }]}
         >
           <BarButton label="目录" color={rs.theme.text} onPress={() => setShowToc(true)} />
+          <BarButton label="书签" color={rs.theme.text} onPress={openBookmarks} />
           <BarButton
             label="上一章"
             color={rs.theme.text}
@@ -477,6 +535,15 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
         currentIndex={currentChapterIndex}
         onJump={jumpToChapter}
         onClose={() => setShowJump(false)}
+      />
+      <BookmarksSheet
+        visible={showBookmarks}
+        bookmarks={bookmarks}
+        chapterTitles={chapterTitles}
+        onAddCurrent={addCurrentBookmark}
+        onJump={jumpToBookmark}
+        onDelete={deleteBookmark}
+        onClose={() => setShowBookmarks(false)}
       />
     </View>
   );
