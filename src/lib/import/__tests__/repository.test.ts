@@ -248,3 +248,58 @@ describe('InMemoryBookRepository – saveProgress / getProgress', () => {
     expect(await repo.getProgress('keep')).not.toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// bookmarks
+// ---------------------------------------------------------------------------
+
+import { type Bookmark } from '../repository';
+
+function makeBookmark(over: Partial<Bookmark> = {}): Bookmark {
+  return {
+    id: 'bm1',
+    bookId: 'book-1',
+    chapterIndex: 3,
+    blockIndex: 5,
+    snippet: '他推开门。',
+    createdAt: 1000,
+    ...over,
+  };
+}
+
+describe('InMemoryBookRepository – bookmarks', () => {
+  it('returns an empty list when there are no bookmarks', async () => {
+    const repo = new InMemoryBookRepository();
+    expect(await repo.listBookmarks('book-1')).toEqual([]);
+  });
+
+  it('adds and lists bookmarks for a book, newest first', async () => {
+    const repo = new InMemoryBookRepository();
+    await repo.addBookmark(makeBookmark({ id: 'a', createdAt: 100 }));
+    await repo.addBookmark(makeBookmark({ id: 'b', createdAt: 300 }));
+    await repo.addBookmark(makeBookmark({ id: 'c', createdAt: 200 }));
+    const list = await repo.listBookmarks('book-1');
+    expect(list.map((b) => b.id)).toEqual(['b', 'c', 'a']);
+  });
+
+  it('scopes bookmarks by book', async () => {
+    const repo = new InMemoryBookRepository();
+    await repo.addBookmark(makeBookmark({ id: 'a', bookId: 'b1' }));
+    await repo.addBookmark(makeBookmark({ id: 'b', bookId: 'b2' }));
+    expect((await repo.listBookmarks('b1')).map((b) => b.id)).toEqual(['a']);
+  });
+
+  it('deletes a bookmark by id', async () => {
+    const repo = new InMemoryBookRepository();
+    await repo.addBookmark(makeBookmark({ id: 'a' }));
+    await repo.deleteBookmark('a');
+    expect(await repo.listBookmarks('book-1')).toEqual([]);
+  });
+
+  it('removes a book\'s bookmarks when the book is deleted', async () => {
+    const repo = new InMemoryBookRepository();
+    await repo.addBookmark(makeBookmark({ id: 'a', bookId: 'book-1' }));
+    await repo.deleteBook('book-1');
+    expect(await repo.listBookmarks('book-1')).toEqual([]);
+  });
+});

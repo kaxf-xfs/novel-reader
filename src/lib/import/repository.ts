@@ -40,9 +40,19 @@ export interface ProgressRecord {
   bookId: string;
   /** 0-based index of the chapter the reader last had in view. */
   chapterIndex: number;
-  /** Character offset within the chapter (best-effort; 0 if unknown). */
+  /** 段落在章内的序号（blockIndex）；0 表示章首。用于章内滚动位置恢复。 */
   charOffset: number;
   updatedAt: number; // Unix ms
+}
+
+export interface Bookmark {
+  id: string;
+  bookId: string;
+  chapterIndex: number;
+  /** 段落在章内的序号（与 ProgressRecord.charOffset 同义）。 */
+  blockIndex: number;
+  snippet: string;
+  createdAt: number; // Unix ms
 }
 
 // ---------------------------------------------------------------------------
@@ -61,6 +71,12 @@ export interface BookRepository {
   saveProgress(p: ProgressRecord): Promise<void>;
   /** Returns the saved progress for a book, or null if none exists. */
   getProgress(bookId: string): Promise<ProgressRecord | null>;
+  /** 新增一条书签。 */
+  addBookmark(b: Bookmark): Promise<void>;
+  /** 返回某本书的书签，按 createdAt 降序。 */
+  listBookmarks(bookId: string): Promise<Bookmark[]>;
+  /** 按 id 删除书签。 */
+  deleteBookmark(id: string): Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -71,6 +87,7 @@ export class InMemoryBookRepository implements BookRepository {
   private books = new Map<string, BookRecord>();
   private chapters = new Map<string, ChapterRecord[]>();
   private progress = new Map<string, ProgressRecord>();
+  private bookmarks = new Map<string, Bookmark>();
 
   async addBook(b: BookRecord): Promise<void> {
     this.books.set(b.id, { ...b });
@@ -94,6 +111,7 @@ export class InMemoryBookRepository implements BookRepository {
     this.books.delete(bookId);
     this.chapters.delete(bookId);
     this.progress.delete(bookId);
+    for (const [id, bm] of this.bookmarks) if (bm.bookId === bookId) this.bookmarks.delete(id);
   }
 
   async saveProgress(p: ProgressRecord): Promise<void> {
@@ -102,5 +120,19 @@ export class InMemoryBookRepository implements BookRepository {
 
   async getProgress(bookId: string): Promise<ProgressRecord | null> {
     return this.progress.get(bookId) ?? null;
+  }
+
+  async addBookmark(b: Bookmark): Promise<void> {
+    this.bookmarks.set(b.id, { ...b });
+  }
+
+  async listBookmarks(bookId: string): Promise<Bookmark[]> {
+    return Array.from(this.bookmarks.values())
+      .filter((b) => b.bookId === bookId)
+      .sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  async deleteBookmark(id: string): Promise<void> {
+    this.bookmarks.delete(id);
   }
 }
