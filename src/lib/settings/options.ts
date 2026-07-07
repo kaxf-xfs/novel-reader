@@ -20,6 +20,7 @@ export const THEME_OPTIONS: readonly LabeledOption<ThemeId>[] = [
   { id: 'dark', label: '暗夜' },
   { id: 'black', label: '纯黑' },
   { id: 'paper', label: '纸白' },
+  { id: 'warmWhite', label: '暖白' },
   { id: 'sepia', label: '米黄' },
   { id: 'green', label: '护眼' },
 ];

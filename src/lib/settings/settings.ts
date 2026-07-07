@@ -18,7 +18,7 @@
 // ---------------------------------------------------------------------------
 
 /** Available reading themes (see ./styles.ts for the concrete palettes). */
-export type ThemeId = 'dark' | 'black' | 'paper' | 'sepia' | 'green';
+export type ThemeId = 'dark' | 'black' | 'paper' | 'warmWhite' | 'sepia' | 'green';
 
 /**
  * Available fonts. `cangEr` = 仓耳今楷 (bundled TTF, loaded at runtime so it
@@ -27,7 +27,14 @@ export type ThemeId = 'dark' | 'black' | 'paper' | 'sepia' | 'green';
  */
 export type FontId = 'cangEr' | 'system' | 'systemSerif';
 
-export const THEME_IDS: readonly ThemeId[] = ['dark', 'black', 'paper', 'sepia', 'green'];
+export const THEME_IDS: readonly ThemeId[] = [
+  'dark',
+  'black',
+  'paper',
+  'warmWhite',
+  'sepia',
+  'green',
+];
 export const FONT_IDS: readonly FontId[] = ['cangEr', 'system', 'systemSerif'];
 
 /** Bookshelf layout: `hero` = continue-reading card + list; `cards` = card grid-list. */

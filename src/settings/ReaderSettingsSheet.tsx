@@ -27,7 +27,11 @@ export function ReaderSettingsSheet({ visible, onClose }: ReaderSettingsSheetPro
   const theme = resolveTheme(settings.themeId);
 
   const sheetBg = theme.background;
-  const isLight = settings.themeId === 'paper' || settings.themeId === 'sepia' || settings.themeId === 'green';
+  const isLight =
+    settings.themeId === 'paper' ||
+    settings.themeId === 'warmWhite' ||
+    settings.themeId === 'sepia' ||
+    settings.themeId === 'green';
   const accent = isLight ? '#2b2b2b' : '#f5f3ee';
 
   return (
