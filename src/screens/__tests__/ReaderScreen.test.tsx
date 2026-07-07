@@ -251,6 +251,19 @@ describe('ReaderScreen', () => {
     expect((await findAllByText('第三章 结局')).length).toBeGreaterThanOrEqual(1);
   });
 
+  it('opens the progress jump sheet from the bottom bar', async () => {
+    const { repo, fs } = setup();
+    await seedReader(repo, fs, { bookId: 'bjump', chapters: CHAPTERS, progressChapterIndex: 0 });
+
+    const { findByText, getByTestId, queryByTestId } = renderReader(repo, fs, 'bjump');
+    await findByText(/内容一。/);
+
+    tapSurface(getByTestId('reader-surface')); // reveal bottom bar
+    expect(queryByTestId('progress-jump-sheet')).toBeNull();
+    fireEvent.press(getByTestId('progress-jump-open'));
+    expect(getByTestId('progress-jump-sheet')).toBeTruthy();
+  });
+
   it('applies the theme background color to the reader container', async () => {
     const { repo, fs } = setup();
     await seedReader(repo, fs, { bookId: 'b9', chapters: CHAPTERS, progressChapterIndex: 0 });

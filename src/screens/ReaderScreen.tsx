@@ -39,6 +39,7 @@ import { computeReaderStyles } from '../lib/settings/styles';
 import { useSettings } from '../settings/SettingsContext';
 import { ReaderSettingsSheet } from '../settings/ReaderSettingsSheet';
 import { TocSheet } from '../reader/TocSheet';
+import { ProgressJumpSheet } from '../reader/ProgressJumpSheet';
 
 interface ReaderScreenProps {
   repo: BookRepository;
@@ -87,6 +88,7 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
 
   const [showSettings, setShowSettings] = useState(false);
   const [showToc, setShowToc] = useState(false);
+  const [showJump, setShowJump] = useState(false);
   // The slim top bar is always visible; tapping the page toggles the bottom
   // control bar. Start immersive (controls hidden), 起点-style.
   const [chromeVisible, setChromeVisible] = useState(false);
@@ -448,7 +450,9 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
             disabled={currentChapterIndex <= 0}
             onPress={() => jumpToChapter(currentChapterIndex - 1)}
           />
-          <Text style={[styles.percentText, { color: rs.theme.subtle }]}>{bookPercent}%</Text>
+          <Pressable testID="progress-jump-open" onPress={() => setShowJump(true)} hitSlop={8}>
+            <Text style={[styles.percentText, { color: rs.theme.subtle }]}>{bookPercent}%</Text>
+          </Pressable>
           <BarButton
             label="下一章"
             color={rs.theme.text}
@@ -466,6 +470,13 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
         currentIndex={currentChapterIndex}
         onSelect={jumpToChapter}
         onClose={() => setShowToc(false)}
+      />
+      <ProgressJumpSheet
+        visible={showJump}
+        chapters={tocEntries}
+        currentIndex={currentChapterIndex}
+        onJump={jumpToChapter}
+        onClose={() => setShowJump(false)}
       />
     </View>
   );
