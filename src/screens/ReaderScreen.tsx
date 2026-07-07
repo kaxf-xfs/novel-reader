@@ -115,6 +115,10 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
   const listRef = useRef<FlatList<FlatBlockItem>>(null);
   const currentBlockIndexRef = useRef(0);
   const pendingRestoreRef = useRef<{ chapterIndex: number; blockIndex: number } | null>(null);
+  // While a mid-chapter restore/jump is settling, holds the anchor we're
+  // scrolling toward so onViewableItemsChanged can reveal the surface the
+  // moment the anchor reaches the top (rather than after a guessed delay).
+  const restoreTargetRef = useRef<{ chapterIndex: number; blockIndex: number } | null>(null);
   const revealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Tap-vs-scroll detection for toggling the chrome ───────────────────
@@ -251,16 +255,27 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
     if (!pending || blocks.length === 0) return;
     const arrayIndex = findBlockArrayIndex(blocks, pending.chapterIndex, pending.blockIndex);
     pendingRestoreRef.current = null;
-    requestAnimationFrame(() => {
-      if (arrayIndex > 0) {
+
+    if (arrayIndex > 0) {
+      // Scroll down into the chapter. Reveal is driven by arrival detection in
+      // onViewableItemsChanged (so long chapters don't reveal mid-scroll); the
+      // timer is only a safety net if viewability never reports the anchor.
+      restoreTargetRef.current = pending;
+      requestAnimationFrame(() => {
         listRef.current?.scrollToIndex({ index: arrayIndex, animated: false });
-      } else {
-        // block 0 (or anchor missing) → the chapter sits at the top already.
+      });
+      if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
+      revealTimerRef.current = setTimeout(() => {
+        restoreTargetRef.current = null;
+        setRestoring(false);
+      }, 1500);
+    } else {
+      // block 0 (or anchor missing) → the chapter is already at the top.
+      requestAnimationFrame(() => {
         listRef.current?.scrollToOffset({ offset: 0, animated: false });
-      }
-    });
-    if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
-    revealTimerRef.current = setTimeout(() => setRestoring(false), 120);
+        setRestoring(false);
+      });
+    }
   }, [blocks]);
 
   const loadMoreBelow = useCallback(async () => {
@@ -310,7 +325,9 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
       const clamped = Math.min(Math.max(target, 0), chapters.length - 1);
       const { indices, blocks: newBlocks } = await loadWindow(book, chapters, clamped);
       pendingRestoreRef.current = { chapterIndex: clamped, blockIndex: targetBlockIndex };
-      setRestoring(true);
+      // Chapter-start jumps land at the top with no scroll, so no mask needed;
+      // only mask when we have to scroll down into the chapter (a bookmark).
+      if (targetBlockIndex > 0) setRestoring(true);
       setBlocks(newBlocks);
       setLo(indices[0]);
       setHi(indices[indices.length - 1]);
@@ -384,6 +401,22 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
       const topItem = viewableItems[0].item as FlatBlockItem;
       setCurrentChapterIndex(topItem.chapterIndex);
       currentBlockIndexRef.current = topItem.blockIndex;
+
+      // Mid-chapter restore/jump in progress: reveal the surface the instant
+      // the anchor block reaches the top, and skip saving intermediate
+      // positions passed during the settle scroll.
+      const target = restoreTargetRef.current;
+      if (target) {
+        const arrived =
+          topItem.chapterIndex > target.chapterIndex ||
+          (topItem.chapterIndex === target.chapterIndex && topItem.blockIndex >= target.blockIndex);
+        if (arrived) {
+          restoreTargetRef.current = null;
+          if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
+          setRestoring(false);
+        }
+        return;
+      }
 
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
       saveTimeoutRef.current = setTimeout(() => {
