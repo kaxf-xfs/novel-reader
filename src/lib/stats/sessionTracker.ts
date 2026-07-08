@@ -79,12 +79,7 @@ export function createSessionTracker(): SessionTracker {
       const at = startedAt;
       accumulatedMs = 0;
       startedAt = isActive ? now : null;
-      // Discard against wall-clock elapsed time since the segment started,
-      // not the accrued *active* time: a segment that idled out after only
-      // 1s of activity but spanned a long real-world gap is still a
-      // legitimate (if mostly idle) session and should be kept, whereas a
-      // segment flushed within a few seconds of starting is noise.
-      if (at === null || now - at < MIN_SESSION_MS) return null;
+      if (at === null || durationMs < MIN_SESSION_MS) return null;
       return { startedAt: at, durationMs };
     },
   };

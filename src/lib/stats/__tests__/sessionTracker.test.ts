@@ -16,10 +16,10 @@ describe('sessionTracker', () => {
   it('stops accruing after idle timeout, not counting the idle gap', () => {
     const t = createSessionTracker();
     t.start(0);
-    t.activity(1_000);
-    t.tickIdle(1_000 + IDLE_TIMEOUT_MS); // crosses the idle threshold
+    t.activity(6_000);
+    t.tickIdle(6_000 + IDLE_TIMEOUT_MS); // crosses the idle threshold
     const r = t.flush(999_999);
-    expect(r).toEqual({ startedAt: 0, durationMs: 1_000 });
+    expect(r).toEqual({ startedAt: 0, durationMs: 6_000 });
   });
 
   it('resumes on activity after an idle pause', () => {
