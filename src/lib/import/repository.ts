@@ -55,6 +55,15 @@ export interface Bookmark {
   createdAt: number; // Unix ms
 }
 
+export interface ReadingSession {
+  id: string;
+  bookId: string;
+  /** Unix ms of when this active segment started (used to attribute the local day). */
+  startedAt: number;
+  /** Active reading milliseconds accrued in this segment. */
+  durationMs: number;
+}
+
 // ---------------------------------------------------------------------------
 // Repository interface
 // ---------------------------------------------------------------------------
@@ -79,6 +88,10 @@ export interface BookRepository {
   listBookmarks(bookId: string): Promise<Bookmark[]>;
   /** 按 id 删除书签。 */
   deleteBookmark(id: string): Promise<void>;
+  /** 追加一段阅读会话时长。 */
+  addSession(s: ReadingSession): Promise<void>;
+  /** 返回全部阅读会话（顺序不保证；调用方自行聚合）。 */
+  listSessions(): Promise<ReadingSession[]>;
 }
 
 // ---------------------------------------------------------------------------
@@ -90,6 +103,7 @@ export class InMemoryBookRepository implements BookRepository {
   private chapters = new Map<string, ChapterRecord[]>();
   private progress = new Map<string, ProgressRecord>();
   private bookmarks = new Map<string, Bookmark>();
+  private sessions: ReadingSession[] = [];
 
   async addBook(b: BookRecord): Promise<void> {
     this.books.set(b.id, { ...b });
@@ -114,6 +128,7 @@ export class InMemoryBookRepository implements BookRepository {
     this.chapters.delete(bookId);
     this.progress.delete(bookId);
     for (const [id, bm] of this.bookmarks) if (bm.bookId === bookId) this.bookmarks.delete(id);
+    this.sessions = this.sessions.filter((s) => s.bookId !== bookId);
   }
 
   async updateBookTitle(bookId: string, title: string): Promise<void> {
@@ -142,5 +157,13 @@ export class InMemoryBookRepository implements BookRepository {
 
   async deleteBookmark(id: string): Promise<void> {
     this.bookmarks.delete(id);
+  }
+
+  async addSession(s: ReadingSession): Promise<void> {
+    this.sessions.push({ ...s });
+  }
+
+  async listSessions(): Promise<ReadingSession[]> {
+    return this.sessions.map((s) => ({ ...s }));
   }
 }

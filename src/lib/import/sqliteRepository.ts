@@ -41,6 +41,13 @@
  *     createdAt    INTEGER NOT NULL
  *   )
  *
+ *   reading_sessions (
+ *     id         TEXT PRIMARY KEY,
+ *     bookId     TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+ *     startedAt  INTEGER NOT NULL,
+ *     durationMs INTEGER NOT NULL
+ *   )
+ *
  * NOT unit-tested (native SQLite doesn't run in the Jest/Node environment).
  * Type correctness is guaranteed by tsc strict mode.
  *
@@ -57,6 +64,7 @@ import type {
   BookRepository,
   ProgressRecord,
   Bookmark,
+  ReadingSession,
 } from './repository';
 
 const DB_NAME = 'novel-reader.db';
@@ -119,6 +127,21 @@ const CREATE_BOOKMARKS_TABLE = `
   );
 `;
 
+const CREATE_SESSIONS_TABLE = `
+  CREATE TABLE IF NOT EXISTS reading_sessions (
+    id         TEXT PRIMARY KEY,
+    bookId     TEXT NOT NULL,
+    startedAt  INTEGER NOT NULL,
+    durationMs INTEGER NOT NULL,
+    FOREIGN KEY (bookId) REFERENCES books(id) ON DELETE CASCADE
+  );
+`;
+
+const CREATE_SESSIONS_INDEX = `
+  CREATE INDEX IF NOT EXISTS idx_sessions_startedAt
+    ON reading_sessions (startedAt);
+`;
+
 // ---------------------------------------------------------------------------
 // SqliteBookRepository
 // ---------------------------------------------------------------------------
@@ -141,7 +164,9 @@ export class SqliteBookRepository implements BookRepository {
         CREATE_CHAPTERS_TABLE +
         CREATE_CHAPTERS_INDEX +
         CREATE_PROGRESS_TABLE +
-        CREATE_BOOKMARKS_TABLE,
+        CREATE_BOOKMARKS_TABLE +
+        CREATE_SESSIONS_TABLE +
+        CREATE_SESSIONS_INDEX,
     );
     return db;
   }
@@ -311,5 +336,29 @@ export class SqliteBookRepository implements BookRepository {
   async deleteBookmark(id: string): Promise<void> {
     const db = await this.dbPromise;
     await db.runAsync('DELETE FROM bookmarks WHERE id = ?', id);
+  }
+
+  async addSession(s: ReadingSession): Promise<void> {
+    const db = await this.dbPromise;
+    await db.runAsync(
+      `INSERT OR REPLACE INTO reading_sessions (id, bookId, startedAt, durationMs)
+       VALUES (?, ?, ?, ?)`,
+      s.id,
+      s.bookId,
+      s.startedAt,
+      s.durationMs,
+    );
+  }
+
+  async listSessions(): Promise<ReadingSession[]> {
+    const db = await this.dbPromise;
+    type Row = { id: string; bookId: string; startedAt: number; durationMs: number };
+    const rows = await db.getAllAsync<Row>('SELECT * FROM reading_sessions');
+    return rows.map((r) => ({
+      id: r.id,
+      bookId: r.bookId,
+      startedAt: r.startedAt,
+      durationMs: r.durationMs,
+    }));
   }
 }
