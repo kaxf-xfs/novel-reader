@@ -43,6 +43,7 @@ import { ReaderSettingsSheet } from '../settings/ReaderSettingsSheet';
 import { TocSheet } from '../reader/TocSheet';
 import { ProgressJumpSheet } from '../reader/ProgressJumpSheet';
 import { BookmarksSheet } from '../reader/BookmarksSheet';
+import { useReadingSession } from '../reader/useReadingSession';
 
 interface ReaderScreenProps {
   repo: BookRepository;
@@ -88,6 +89,12 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
   const { settings } = useSettings();
   const rs = useMemo(() => computeReaderStyles(settings), [settings]);
   const status = useReaderStatus();
+  const { registerActivity } = useReadingSession({
+    bookId,
+    persist: (s) => {
+      void repo.addSession(s);
+    },
+  });
 
   const [showSettings, setShowSettings] = useState(false);
   const [showToc, setShowToc] = useState(false);
@@ -548,6 +555,8 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
             maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
             onViewableItemsChanged={onViewableItemsChanged}
             viewabilityConfig={viewabilityConfig}
+            onScroll={registerActivity}
+            scrollEventThrottle={250}
             onScrollToIndexFailed={(info) => {
               listRef.current?.scrollToOffset({
                 offset: info.averageItemLength * info.index,
