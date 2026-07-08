@@ -25,6 +25,7 @@ import { importBook } from '../lib/import/importBook';
 import type { FileGateway } from '../lib/import/importBook';
 import type { BookRecord, BookRepository } from '../lib/import/repository';
 import { chapterProgressPercent } from '../lib/reader/progress';
+import { perBookMs, formatDuration } from '../lib/stats/aggregate';
 import { buildCover } from '../lib/library/cover';
 import { sortByRecent } from '../lib/library/sort';
 import { selectHero } from '../lib/library/hero';
@@ -47,10 +48,12 @@ interface BookListItem {
   importedAt: number;
   lastReadAt: number | null;
   currentChapterTitle: string | null;
+  readMs: number;
 }
 
 async function loadLibraryItems(repo: BookRepository): Promise<BookListItem[]> {
-  const books = await repo.listBooks();
+  const [books, sessions] = await Promise.all([repo.listBooks(), repo.listSessions()]);
+  const readByBook = perBookMs(sessions);
   const items = await Promise.all(
     books.map(async (book) => {
       const [chapters, progress] = await Promise.all([
@@ -69,6 +72,7 @@ async function loadLibraryItems(repo: BookRepository): Promise<BookListItem[]> {
         importedAt: book.importedAt,
         lastReadAt: progress ? progress.updatedAt : null,
         currentChapterTitle: progress ? chapters[idx]?.title ?? null : null,
+        readMs: readByBook.get(book.id) ?? 0,
       };
     }),
   );
@@ -177,6 +181,7 @@ export function LibraryScreen({ repo, fs, onOpenBook, onOpenStats }: LibraryScre
             </Text>
             <Text style={styles.rowMeta} numberOfLines={1}>
               {item.totalChapters > 0 ? `共 ${item.totalChapters} 章` : '未分章'}
+              {item.readMs > 0 ? ` · 读了 ${formatDuration(item.readMs)}` : ''}
               {item.lastReadAt !== null ? ` · ${formatRelativeTime(item.lastReadAt)}` : ' · 未读'}
             </Text>
           </View>
@@ -211,6 +216,7 @@ export function LibraryScreen({ repo, fs, onOpenBook, onOpenStats }: LibraryScre
             </Text>
             <Text style={styles.cardMeta} numberOfLines={1}>
               {progressLabel(item)}
+              {item.readMs > 0 ? ` · 读了 ${formatDuration(item.readMs)}` : ''}
               {item.lastReadAt !== null ? ` · ${formatRelativeTime(item.lastReadAt)}` : ''}
             </Text>
             <View style={styles.track}>
@@ -256,7 +262,10 @@ export function LibraryScreen({ repo, fs, onOpenBook, onOpenStats }: LibraryScre
                 </View>
                 <View style={styles.heroProgLabels}>
                   <Text style={styles.heroProgLeft}>已读 {hero.progressPercent ?? 0}%</Text>
-                  <Text style={styles.heroProgRight}>共 {hero.totalChapters} 章</Text>
+                  <Text style={styles.heroProgRight}>
+                    共 {hero.totalChapters} 章
+                    {hero.readMs > 0 ? ` · 读了 ${formatDuration(hero.readMs)}` : ''}
+                  </Text>
                 </View>
               </View>
             </View>

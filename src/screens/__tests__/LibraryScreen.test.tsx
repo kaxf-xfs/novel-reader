@@ -131,6 +131,19 @@ describe('LibraryScreen', () => {
     });
   });
 
+  it('shows accumulated reading time on a book once it has sessions', async () => {
+    const { repo, fs } = makeSetup();
+    await seedReader(repo, fs, {
+      bookId: 'b1', title: '凡人修仙传',
+      chapters: [{ title: '第一章', body: '正文' }],
+      progressChapterIndex: 0, lastReadAt: Date.now(),
+    });
+    await repo.addSession({ id: 's1', bookId: 'b1', startedAt: Date.now(), durationMs: 2 * 3_600_000 });
+
+    const { findByText } = renderLib(repo, fs);
+    expect(await findByText(/读了 2 小时/)).toBeTruthy();
+  });
+
   it('import flow adds a newly picked book', async () => {
     const { repo, fs } = makeSetup();
     const novel = ['第一章 山边小村', '内容一。', '第二章 入门', '内容二。', '第三章 出师', '内容三。'].join('\n');
