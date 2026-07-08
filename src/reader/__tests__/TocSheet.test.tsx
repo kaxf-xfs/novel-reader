@@ -77,7 +77,7 @@ describe('TocSheet full-text tab', () => {
     const onSelectResult = jest.fn();
     const onClose = jest.fn();
 
-    const { getByText, getByPlaceholderText, findByTestId } = renderWithSettings(
+    const { findByText, getByPlaceholderText, findByTestId } = renderWithSettings(
       <TocSheet
         visible
         chapters={CHAPTERS}
@@ -89,7 +89,9 @@ describe('TocSheet full-text tab', () => {
       />,
     );
 
-    fireEvent.press(getByText('全文'));
+    // Await a stable element so the SettingsProvider's async load flushes
+    // inside act() before we drive synchronous interactions.
+    fireEvent.press(await findByText('全文'));
     const input = getByPlaceholderText('搜索全文');
     fireEvent.changeText(input, '剑气');
     fireEvent(input, 'submitEditing');
@@ -100,10 +102,11 @@ describe('TocSheet full-text tab', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it('shows no tabs when onFullTextSearch is not provided', () => {
-    const { queryByText } = renderWithSettings(
+  it('shows no tabs when onFullTextSearch is not provided', async () => {
+    const { findByText, queryByText } = renderWithSettings(
       <TocSheet visible chapters={CHAPTERS} currentIndex={0} onSelect={() => {}} onClose={() => {}} />,
     );
+    await findByText('目录'); // flush the SettingsProvider load inside act()
     expect(queryByText('全文')).toBeNull();
   });
 });
