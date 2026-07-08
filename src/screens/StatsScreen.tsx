@@ -116,8 +116,8 @@ export function StatsScreen({ repo, onBack }: StatsScreenProps) {
 
           {/* 连续阅读 + 14 天柱状 */}
           <View style={[styles.card, { backgroundColor: soft }]}>
-            <Text style={[styles.k, { color: theme.subtle }]}>🔥 连续阅读</Text>
-            <Text style={[styles.midV, { color: theme.heading }]}>{stats.streak} 天</Text>
+            <Text style={[styles.k, { color: theme.subtle }]}>连续阅读</Text>
+            <Text style={[styles.midV, { color: theme.accent }]}>{stats.streak} 天</Text>
             <Text style={[styles.sub, { color: theme.subtle }]}>
               最长 {stats.longest} 天 · 活跃 {stats.active} 天
             </Text>
