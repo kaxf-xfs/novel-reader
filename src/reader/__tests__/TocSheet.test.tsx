@@ -1,5 +1,6 @@
-import { fireEvent } from '@testing-library/react-native';
+import { fireEvent, waitFor } from '@testing-library/react-native';
 
+import type { SearchOutcome } from '../../lib/reader/searchBook';
 import { renderWithSettings } from '../../test-utils/render';
 import { TocSheet } from '../TocSheet';
 
@@ -58,5 +59,51 @@ describe('TocSheet', () => {
     const { findByText, onClose } = renderToc();
     fireEvent.press(await findByText('关闭'));
     expect(onClose).toHaveBeenCalled();
+  });
+});
+
+const CHAPTERS = [
+  { index: 0, title: '第一章 起' },
+  { index: 1, title: '第二章 战' },
+];
+
+describe('TocSheet full-text tab', () => {
+  it('switches to 全文 and runs a full-text search that jumps to a result', async () => {
+    const outcome: SearchOutcome = {
+      results: [{ chapterIndex: 1, chapterTitle: '第二章 战', blockIndex: 1, snippet: '…剑气…' }],
+      capped: false,
+    };
+    const onFullTextSearch = jest.fn(async () => outcome);
+    const onSelectResult = jest.fn();
+    const onClose = jest.fn();
+
+    const { getByText, getByPlaceholderText, findByTestId } = renderWithSettings(
+      <TocSheet
+        visible
+        chapters={CHAPTERS}
+        currentIndex={0}
+        onSelect={() => {}}
+        onClose={onClose}
+        onFullTextSearch={onFullTextSearch}
+        onSelectResult={onSelectResult}
+      />,
+    );
+
+    fireEvent.press(getByText('全文'));
+    const input = getByPlaceholderText('搜索全文');
+    fireEvent.changeText(input, '剑气');
+    fireEvent(input, 'submitEditing');
+
+    const row = await findByTestId('ft-result');
+    fireEvent.press(row);
+    await waitFor(() => expect(onSelectResult).toHaveBeenCalledWith(1, 1, '剑气'));
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('shows no tabs when onFullTextSearch is not provided', () => {
+    const { queryByText } = renderWithSettings(
+      <TocSheet visible chapters={CHAPTERS} currentIndex={0} onSelect={() => {}} onClose={() => {}} />,
+    );
+    expect(queryByText('全文')).toBeNull();
   });
 });
