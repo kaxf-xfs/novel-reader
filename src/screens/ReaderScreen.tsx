@@ -34,6 +34,8 @@ import { splitBlocks } from '../lib/reader/blocks';
 import { findBlockArrayIndex } from '../lib/reader/restore';
 import { chapterProgressPercent, chapterProgressPercentPrecise } from '../lib/reader/progress';
 import { makeSnippet } from '../lib/reader/snippet';
+import { splitHighlight, hexToRgba } from '../lib/reader/search';
+import { searchBook } from '../lib/reader/searchBook';
 import { useReaderStatus } from '../lib/reader/useReaderStatus';
 import { computeReaderStyles } from '../lib/settings/styles';
 import { useSettings } from '../settings/SettingsContext';
@@ -92,6 +94,7 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
   const [showJump, setShowJump] = useState(false);
   const [showBookmarks, setShowBookmarks] = useState(false);
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
+  const [highlightTerm, setHighlightTerm] = useState<string | null>(null);
   // The slim top bar is always visible; tapping the page toggles the bottom
   // control bar. Start immersive (controls hidden), 起点-style.
   const [chromeVisible, setChromeVisible] = useState(false);
@@ -336,10 +339,11 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
   // bookmark). Rebuild the forward window and let the restore effect land the
   // list on the anchor while the surface is masked — no visible scroll.
   const jumpToChapter = useCallback(
-    async (target: number, targetBlockIndex = 0) => {
+    async (target: number, targetBlockIndex = 0, term: string | null = null) => {
       if (!book || !chapters) return;
       const clamped = Math.min(Math.max(target, 0), chapters.length - 1);
       const { indices, blocks: newBlocks } = await loadWindow(book, chapters, clamped);
+      setHighlightTerm(term);
       pendingRestoreRef.current = { chapterIndex: clamped, blockIndex: targetBlockIndex };
       // Chapter-start jumps land at the top with no scroll, so no mask needed;
       // only mask when we have to scroll down into the chapter (a bookmark).
@@ -356,7 +360,13 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
         updatedAt: Date.now(),
       });
     },
-    [book, chapters, loadWindow, repo, bookId],
+    [book, chapters, loadWindow, repo, bookId, mask],
+  );
+
+  const runFullTextSearch = useCallback(
+    (term: string) =>
+      searchBook({ fs, normalizedPath: book?.normalizedPath ?? '', chapters: chapters ?? [], term }),
+    [fs, book, chapters],
   );
 
   // 打开书签列表时刷新（先展示 sheet，再异步填充列表，避免列表加载延迟阻塞开关反馈）
@@ -517,7 +527,16 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
               ) : (
                 <Text style={rs.paragraph}>
                   {PARA_INDENT}
-                  {item.text}
+                  {highlightTerm
+                    ? splitHighlight(item.text, highlightTerm).map((seg, i) => (
+                        <Text
+                          key={i}
+                          style={seg.match ? { backgroundColor: hexToRgba(rs.theme.accent, 0.22) } : undefined}
+                        >
+                          {seg.text}
+                        </Text>
+                      ))
+                    : item.text}
                 </Text>
               )
             }
@@ -603,6 +622,8 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
         currentIndex={currentChapterIndex}
         onSelect={jumpToChapter}
         onClose={() => setShowToc(false)}
+        onFullTextSearch={runFullTextSearch}
+        onSelectResult={(c, b, t) => jumpToChapter(c, b, t)}
       />
       <ProgressJumpSheet
         visible={showJump}

@@ -1,4 +1,4 @@
-import { act, fireEvent, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, waitFor, within } from '@testing-library/react-native';
 
 import { InMemoryBookRepository } from '../../lib/import/repository';
 import { resolveTheme } from '../../lib/settings/styles';
@@ -336,6 +336,42 @@ describe('ReaderScreen', () => {
     await waitFor(() => {
       const call = saveSpy.mock.calls.find(([p]) => p.chapterIndex === 2);
       expect(call?.[0].charOffset).toBe(1);
+    });
+  });
+
+  it('highlights the search term in the body after selecting a result', async () => {
+    const { repo, fs } = setup();
+    await seedReader(repo, fs, {
+      bookId: 'bft',
+      chapters: [
+        { title: '第一章 起', body: '他周身腾起一层剑气，直逼面门。' },
+        { title: '第二章 承', body: '风平浪静。' },
+      ],
+      progressChapterIndex: 0,
+    });
+
+    const { findByText, getByText, getByTestId, getAllByText, findByTestId } = renderReader(
+      repo,
+      fs,
+      'bft',
+    );
+    await findByText(/剑气/);
+
+    // open TOC → 全文 tab → search → tap result
+    tapSurface(getByTestId('reader-surface'));
+    fireEvent.press(getByText('目录'));
+    fireEvent.press(getByText('全文'));
+    const input = within(getByTestId('toc-sheet')).getByPlaceholderText('搜索全文');
+    fireEvent.changeText(input, '剑气');
+    fireEvent(input, 'submitEditing');
+    fireEvent.press(await findByTestId('ft-result'));
+
+    // the body '剑气' now renders with the accent highlight background
+    await waitFor(() => {
+      const hit = getAllByText('剑气').find((n) =>
+        JSON.stringify(n.props.style ?? {}).includes('rgba'),
+      );
+      expect(hit).toBeTruthy();
     });
   });
 });
