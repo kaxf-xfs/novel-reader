@@ -10,8 +10,9 @@ import { CANGER_FONT_FAMILY } from './src/lib/settings/styles';
 import { SettingsProvider } from './src/settings/SettingsContext';
 import { LibraryScreen } from './src/screens/LibraryScreen';
 import { ReaderScreen } from './src/screens/ReaderScreen';
+import { StatsScreen } from './src/screens/StatsScreen';
 
-type Screen = { name: 'library' } | { name: 'reader'; bookId: string };
+type Screen = { name: 'library' } | { name: 'reader'; bookId: string } | { name: 'stats' };
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>({ name: 'library' });
@@ -34,14 +35,20 @@ export default function App() {
     setScreen({ name: 'library' });
   }, []);
 
+  const openStats = useCallback(() => {
+    setScreen({ name: 'stats' });
+  }, []);
+
   return (
     <SettingsProvider gateway={settingsGateway}>
       <View style={styles.container}>
         <StatusBar style="dark" />
         {screen.name === 'library' ? (
-          <LibraryScreen repo={repo} fs={fs} onOpenBook={openBook} />
-        ) : (
+          <LibraryScreen repo={repo} fs={fs} onOpenBook={openBook} onOpenStats={openStats} />
+        ) : screen.name === 'reader' ? (
           <ReaderScreen repo={repo} fs={fs} bookId={screen.bookId} onBack={backToLibrary} />
+        ) : (
+          <StatsScreen repo={repo} onBack={backToLibrary} />
         )}
       </View>
     </SettingsProvider>

@@ -37,6 +37,7 @@ interface LibraryScreenProps {
   repo: BookRepository;
   fs: FileGateway;
   onOpenBook: (bookId: string) => void;
+  onOpenStats: () => void;
 }
 
 interface BookListItem {
@@ -80,7 +81,7 @@ function progressLabel(item: BookListItem): string {
   return `已读 ${item.progressPercent}%`;
 }
 
-export function LibraryScreen({ repo, fs, onOpenBook }: LibraryScreenProps) {
+export function LibraryScreen({ repo, fs, onOpenBook, onOpenStats }: LibraryScreenProps) {
   const { settings, update } = useSettings();
   const layout = settings.libraryLayout;
 
@@ -305,6 +306,14 @@ export function LibraryScreen({ repo, fs, onOpenBook }: LibraryScreenProps) {
       <View style={styles.header}>
         <Text style={styles.title}>书架</Text>
         <View style={styles.headerRight}>
+          <Pressable
+            testID="open-stats"
+            onPress={onOpenStats}
+            hitSlop={10}
+            style={({ pressed }) => [styles.statsButton, pressed && styles.pressed]}
+          >
+            <Text style={styles.statsButtonText}>统计</Text>
+          </Pressable>
           <LayoutToggle value={layout} onChange={(l) => update({ libraryLayout: l })} />
           <Pressable
             style={({ pressed }) => [styles.importButton, pressed && styles.pressed]}
@@ -393,6 +402,8 @@ const styles = StyleSheet.create({
   },
   toggleText: { fontSize: 12.5, color: MUTED, fontWeight: '600' },
   toggleTextActive: { color: ACCENT },
+  statsButton: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: '#eceae3' },
+  statsButtonText: { fontSize: 12.5, color: MUTED, fontWeight: '600' },
   importButton: {
     backgroundColor: ACCENT,
     paddingHorizontal: 16,

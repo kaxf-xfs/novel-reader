@@ -22,7 +22,7 @@ function renderLib(
   gateway = new InMemorySettingsGateway(),
 ) {
   return renderWithSettings(
-    <LibraryScreen repo={repo} fs={fs} onOpenBook={onOpenBook} />,
+    <LibraryScreen repo={repo} fs={fs} onOpenBook={onOpenBook} onOpenStats={jest.fn()} />,
     gateway,
   );
 }
