@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { BookRecord, BookRepository, ReadingSession } from '../lib/import/repository';
 import {
@@ -61,7 +61,7 @@ export function StatsScreen({ repo, onBack }: StatsScreenProps) {
       longest: longestStreak(sessions),
       active: activeDays(sessions),
       avg: averageDailyMs(sessions),
-      buckets: dailyBuckets(sessions, now, 14),
+      buckets: dailyBuckets(sessions, now, 56),
       topTitle,
       topMs,
       topPct: total > 0 ? Math.round((topMs / total) * 100) : 0,
@@ -70,8 +70,22 @@ export function StatsScreen({ repo, onBack }: StatsScreenProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessions, books]);
 
-  const maxBucket = Math.max(1, ...stats.buckets);
   const soft = `${theme.accent}24`; // ~14% alpha (accent is #rrggbb)
+
+  // 热力图配色：空=淡灰，其余按当天时长取强调色三档透明度（RN 接受 #rrggbbaa）。
+  const heatColor = (ms: number): string => {
+    if (ms <= 0) return `${theme.subtle}22`;
+    if (ms < 20 * 60_000) return `${theme.accent}47`;
+    if (ms < 60 * 60_000) return `${theme.accent}94`;
+    return theme.accent;
+  };
+  // 最近 8 周 → 8 列(周) × 7 行(天)，buckets[55] 为今天，最右列为本周。
+  const heatColumns: number[][] = [];
+  for (let c = 0; c < 8; c++) {
+    const col: number[] = [];
+    for (let r = 0; r < 7; r++) col.push(stats.buckets[c * 7 + r] ?? 0);
+    heatColumns.push(col);
+  }
 
   return (
     <View testID="stats-screen" style={[styles.container, { backgroundColor: theme.background }]}>
@@ -90,7 +104,7 @@ export function StatsScreen({ repo, onBack }: StatsScreenProps) {
           </Text>
         </View>
       ) : (
-        <ScrollView contentContainerStyle={styles.scroll}>
+        <View style={styles.flow}>
           {/* hero — 累计总时长 */}
           <View style={[styles.card, { backgroundColor: theme.accent }]}>
             <Text style={[styles.k, { color: '#ffffffb8' }]}>累计阅读</Text>
@@ -114,24 +128,13 @@ export function StatsScreen({ repo, onBack }: StatsScreenProps) {
             </View>
           </View>
 
-          {/* 连续阅读 + 14 天柱状 */}
+          {/* 连续阅读 */}
           <View style={[styles.card, { backgroundColor: soft }]}>
             <Text style={[styles.k, { color: theme.subtle }]}>连续阅读</Text>
             <Text style={[styles.midV, { color: theme.accent }]}>{stats.streak} 天</Text>
             <Text style={[styles.sub, { color: theme.subtle }]}>
               最长 {stats.longest} 天 · 活跃 {stats.active} 天
             </Text>
-            <View style={styles.spark}>
-              {stats.buckets.map((v, i) => (
-                <View
-                  key={i}
-                  style={[
-                    styles.sparkBar,
-                    { height: `${Math.max(6, (v / maxBucket) * 100)}%`, backgroundColor: theme.accent },
-                  ]}
-                />
-              ))}
-            </View>
           </View>
 
           {/* 读得最多 */}
@@ -146,30 +149,59 @@ export function StatsScreen({ repo, onBack }: StatsScreenProps) {
               </Text>
             </View>
           )}
-        </ScrollView>
+
+          {/* 最近 8 周热力图 */}
+          <View style={[styles.card, { backgroundColor: soft }]}>
+            <View style={styles.heatHead}>
+              <Text style={[styles.k, { color: theme.subtle }]}>最近 8 周</Text>
+              <View style={styles.legend}>
+                <Text style={[styles.legendText, { color: theme.subtle }]}>少</Text>
+                {[0, 10 * 60_000, 40 * 60_000, 90 * 60_000].map((ms, i) => (
+                  <View key={i} style={[styles.legendCell, { backgroundColor: heatColor(ms) }]} />
+                ))}
+                <Text style={[styles.legendText, { color: theme.subtle }]}>多</Text>
+              </View>
+            </View>
+            <View style={styles.heatGrid}>
+              {heatColumns.map((col, ci) => (
+                <View key={ci} style={styles.heatCol}>
+                  {col.map((ms, ri) => (
+                    <View key={ri} style={[styles.heatCell, { backgroundColor: heatColor(ms) }]} />
+                  ))}
+                </View>
+              ))}
+            </View>
+          </View>
+        </View>
       )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, paddingTop: 64 },
-  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, marginBottom: 12 },
+  container: { flex: 1, paddingTop: 56 },
+  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, marginBottom: 8 },
   back: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
   arrow: { fontSize: 28, lineHeight: 30 },
   title: { flex: 1, textAlign: 'center', fontSize: 18, fontWeight: '700' },
-  scroll: { paddingHorizontal: 18, paddingBottom: 48, gap: 12 },
+  flow: { paddingHorizontal: 16, paddingBottom: 16, gap: 9 },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: 80, paddingHorizontal: 40 },
   emptyText: { fontSize: 15, textAlign: 'center', lineHeight: 22 },
-  card: { borderRadius: 18, padding: 20 },
-  row: { flexDirection: 'row', gap: 12 },
+  card: { borderRadius: 16, padding: 14 },
+  row: { flexDirection: 'row', gap: 9 },
   mini: { flex: 1 },
-  k: { fontSize: 12, fontWeight: '600' },
-  hero: { fontSize: 40, fontWeight: '800', marginTop: 6, letterSpacing: -0.5 },
-  sub: { fontSize: 12, marginTop: 8 },
-  miniV: { fontSize: 26, fontWeight: '700', marginTop: 6 },
-  midV: { fontSize: 30, fontWeight: '800', marginTop: 6 },
-  book: { fontSize: 22, fontWeight: '700', marginTop: 6 },
-  spark: { flexDirection: 'row', alignItems: 'flex-end', gap: 4, height: 40, marginTop: 14 },
-  sparkBar: { flex: 1, borderRadius: 2, minHeight: 3 },
+  k: { fontSize: 11.5, fontWeight: '600' },
+  hero: { fontSize: 32, fontWeight: '800', marginTop: 3, letterSpacing: -0.5 },
+  sub: { fontSize: 11.5, marginTop: 5 },
+  miniV: { fontSize: 22, fontWeight: '700', marginTop: 3 },
+  midV: { fontSize: 26, fontWeight: '800', marginTop: 3 },
+  book: { fontSize: 19, fontWeight: '700', marginTop: 3 },
+  // heatmap
+  heatHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 9 },
+  legend: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  legendText: { fontSize: 10.5 },
+  legendCell: { width: 9, height: 9, borderRadius: 2 },
+  heatGrid: { flexDirection: 'row', gap: 4 },
+  heatCol: { flex: 1, gap: 4 },
+  heatCell: { width: '100%', aspectRatio: 1, borderRadius: 3 },
 });
