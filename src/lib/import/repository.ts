@@ -64,6 +64,18 @@ export interface ReadingSession {
   durationMs: number;
 }
 
+export interface SummaryRecord {
+  bookId: string;
+  /** 0 = per-chapter summary, 1 = per-arc (merged) summary. */
+  level: 0 | 1;
+  /** chapter index (level 0) or arc index (level 1). */
+  idx: number;
+  model: string;
+  promptVersion: string;
+  summary: string;
+  createdAt: number;
+}
+
 // ---------------------------------------------------------------------------
 // Repository interface
 // ---------------------------------------------------------------------------
@@ -92,6 +104,12 @@ export interface BookRepository {
   addSession(s: ReadingSession): Promise<void>;
   /** 返回全部阅读会话（顺序不保证；调用方自行聚合）。 */
   listSessions(): Promise<ReadingSession[]>;
+  /** Upserts an AI summary keyed by (bookId, level, idx). */
+  putSummary(s: SummaryRecord): Promise<void>;
+  /** Returns the summary for a key, or null. */
+  getSummary(bookId: string, level: 0 | 1, idx: number): Promise<SummaryRecord | null>;
+  /** Returns level's summaries with idx ≤ uptoIdx, ascending by idx. */
+  listSummaries(bookId: string, level: 0 | 1, uptoIdx: number): Promise<SummaryRecord[]>;
 }
 
 // ---------------------------------------------------------------------------
@@ -104,6 +122,7 @@ export class InMemoryBookRepository implements BookRepository {
   private progress = new Map<string, ProgressRecord>();
   private bookmarks = new Map<string, Bookmark>();
   private sessions: ReadingSession[] = [];
+  private summaries = new Map<string, SummaryRecord>();
 
   async addBook(b: BookRecord): Promise<void> {
     this.books.set(b.id, { ...b });
@@ -129,6 +148,7 @@ export class InMemoryBookRepository implements BookRepository {
     this.progress.delete(bookId);
     for (const [id, bm] of this.bookmarks) if (bm.bookId === bookId) this.bookmarks.delete(id);
     this.sessions = this.sessions.filter((s) => s.bookId !== bookId);
+    for (const [k, s] of this.summaries) if (s.bookId === bookId) this.summaries.delete(k);
   }
 
   async updateBookTitle(bookId: string, title: string): Promise<void> {
@@ -165,5 +185,20 @@ export class InMemoryBookRepository implements BookRepository {
 
   async listSessions(): Promise<ReadingSession[]> {
     return this.sessions.map((s) => ({ ...s }));
+  }
+
+  async putSummary(s: SummaryRecord): Promise<void> {
+    this.summaries.set(`${s.bookId}:${s.level}:${s.idx}`, { ...s });
+  }
+
+  async getSummary(bookId: string, level: 0 | 1, idx: number): Promise<SummaryRecord | null> {
+    return this.summaries.get(`${bookId}:${level}:${idx}`) ?? null;
+  }
+
+  async listSummaries(bookId: string, level: 0 | 1, uptoIdx: number): Promise<SummaryRecord[]> {
+    return Array.from(this.summaries.values())
+      .filter((s) => s.bookId === bookId && s.level === level && s.idx <= uptoIdx)
+      .sort((a, b) => a.idx - b.idx)
+      .map((s) => ({ ...s }));
   }
 }

@@ -48,6 +48,17 @@
  *     durationMs INTEGER NOT NULL
  *   )
  *
+ *   ai_summaries (
+ *     bookId        TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+ *     level         INTEGER NOT NULL,  -- 0 = per-chapter, 1 = per-arc
+ *     idx           INTEGER NOT NULL,  -- chapter index or arc index
+ *     model         TEXT NOT NULL,
+ *     promptVersion TEXT NOT NULL,
+ *     summary       TEXT NOT NULL,
+ *     createdAt     INTEGER NOT NULL,
+ *     PRIMARY KEY (bookId, level, idx)
+ *   )
+ *
  * NOT unit-tested (native SQLite doesn't run in the Jest/Node environment).
  * Type correctness is guaranteed by tsc strict mode.
  *
@@ -65,6 +76,7 @@ import type {
   ProgressRecord,
   Bookmark,
   ReadingSession,
+  SummaryRecord,
 } from './repository';
 
 const DB_NAME = 'novel-reader.db';
@@ -142,6 +154,20 @@ const CREATE_SESSIONS_INDEX = `
     ON reading_sessions (startedAt);
 `;
 
+const CREATE_SUMMARIES_TABLE = `
+  CREATE TABLE IF NOT EXISTS ai_summaries (
+    bookId        TEXT NOT NULL,
+    level         INTEGER NOT NULL,
+    idx           INTEGER NOT NULL,
+    model         TEXT NOT NULL,
+    promptVersion TEXT NOT NULL,
+    summary       TEXT NOT NULL,
+    createdAt     INTEGER NOT NULL,
+    PRIMARY KEY (bookId, level, idx),
+    FOREIGN KEY (bookId) REFERENCES books(id) ON DELETE CASCADE
+  );
+`;
+
 // ---------------------------------------------------------------------------
 // SqliteBookRepository
 // ---------------------------------------------------------------------------
@@ -166,7 +192,8 @@ export class SqliteBookRepository implements BookRepository {
         CREATE_PROGRESS_TABLE +
         CREATE_BOOKMARKS_TABLE +
         CREATE_SESSIONS_TABLE +
-        CREATE_SESSIONS_INDEX,
+        CREATE_SESSIONS_INDEX +
+        CREATE_SUMMARIES_TABLE,
     );
     return db;
   }
@@ -360,5 +387,34 @@ export class SqliteBookRepository implements BookRepository {
       startedAt: r.startedAt,
       durationMs: r.durationMs,
     }));
+  }
+
+  async putSummary(s: SummaryRecord): Promise<void> {
+    const db = await this.dbPromise;
+    await db.runAsync(
+      `INSERT OR REPLACE INTO ai_summaries (bookId, level, idx, model, promptVersion, summary, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      s.bookId, s.level, s.idx, s.model, s.promptVersion, s.summary, s.createdAt,
+    );
+  }
+
+  async getSummary(bookId: string, level: 0 | 1, idx: number): Promise<SummaryRecord | null> {
+    const db = await this.dbPromise;
+    type Row = { bookId: string; level: number; idx: number; model: string; promptVersion: string; summary: string; createdAt: number };
+    const row = await db.getFirstAsync<Row>(
+      'SELECT * FROM ai_summaries WHERE bookId = ? AND level = ? AND idx = ?',
+      bookId, level, idx,
+    );
+    return row ? { ...row, level: row.level as 0 | 1 } : null;
+  }
+
+  async listSummaries(bookId: string, level: 0 | 1, uptoIdx: number): Promise<SummaryRecord[]> {
+    const db = await this.dbPromise;
+    type Row = { bookId: string; level: number; idx: number; model: string; promptVersion: string; summary: string; createdAt: number };
+    const rows = await db.getAllAsync<Row>(
+      'SELECT * FROM ai_summaries WHERE bookId = ? AND level = ? AND idx <= ? ORDER BY idx ASC',
+      bookId, level, uptoIdx,
+    );
+    return rows.map((r) => ({ ...r, level: r.level as 0 | 1 }));
   }
 }
