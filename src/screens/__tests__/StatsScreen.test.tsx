@@ -1,4 +1,4 @@
-import { render, waitFor } from '@testing-library/react-native';
+import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import { InMemoryBookRepository, type ReadingSession } from '../../lib/import/repository';
 import { InMemorySettingsGateway } from '../../lib/settings/store';
 import { SettingsProvider } from '../../settings/SettingsContext';
@@ -63,5 +63,25 @@ describe('StatsScreen', () => {
     const root = await findByTestId('stats-screen');
     // dark ("墨隐") is the default theme background (DEFAULT_SETTINGS.themeId === 'dark').
     expect(root).toHaveStyle({ backgroundColor: '#14161b' });
+  });
+
+  it('goes back on a left-edge rightward swipe', async () => {
+    const { findByTestId, onBack } = renderStats([
+      { id: 's1', bookId: 'b1', startedAt: todayAt(9), durationMs: HOUR },
+    ]);
+    const root = await findByTestId('stats-screen');
+    fireEvent(root, 'touchStart', { nativeEvent: { touches: [{ pageX: 12, pageY: 300 }] } });
+    fireEvent(root, 'touchEnd', { nativeEvent: { changedTouches: [{ pageX: 140, pageY: 306 }] } });
+    expect(onBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores a swipe that does not start at the left edge', async () => {
+    const { findByTestId, onBack } = renderStats([
+      { id: 's1', bookId: 'b1', startedAt: todayAt(9), durationMs: HOUR },
+    ]);
+    const root = await findByTestId('stats-screen');
+    fireEvent(root, 'touchStart', { nativeEvent: { touches: [{ pageX: 200, pageY: 300 }] } });
+    fireEvent(root, 'touchEnd', { nativeEvent: { changedTouches: [{ pageX: 320, pageY: 306 }] } });
+    expect(onBack).not.toHaveBeenCalled();
   });
 });

@@ -3,8 +3,8 @@
  * 主题自适应（resolveTheme），竖向滚动、一卡一概念。
  */
 
-import { useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Pressable, StyleSheet, Text, View, type GestureResponderEvent } from 'react-native';
 
 import type { BookRecord, BookRepository, ReadingSession } from '../lib/import/repository';
 import {
@@ -39,6 +39,22 @@ export function StatsScreen({ repo, onBack }: StatsScreenProps) {
       cancelled = true;
     };
   }, [repo]);
+
+  // 左缘向右滑 → 返回书架（与阅读器手势一致；纯 View 无滚动冲突）。
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const onTouchStart = (e: GestureResponderEvent) => {
+    const t = e.nativeEvent.touches[0];
+    if (t) touchStartRef.current = { x: t.pageX, y: t.pageY };
+  };
+  const onTouchEnd = (e: GestureResponderEvent) => {
+    const start = touchStartRef.current;
+    touchStartRef.current = null;
+    const end = e.nativeEvent.changedTouches[0];
+    if (!start || !end) return;
+    const dx = end.pageX - start.x;
+    const dy = end.pageY - start.y;
+    if (start.x < 40 && dx > 60 && dx > Math.abs(dy) * 2) onBack();
+  };
 
   const now = Date.now();
   const stats = useMemo(() => {
@@ -88,7 +104,12 @@ export function StatsScreen({ repo, onBack }: StatsScreenProps) {
   }
 
   return (
-    <View testID="stats-screen" style={[styles.container, { backgroundColor: theme.background }]}>
+    <View
+      testID="stats-screen"
+      style={[styles.container, { backgroundColor: theme.background }]}
+      onTouchStart={onTouchStart}
+      onTouchEnd={onTouchEnd}
+    >
       <View style={styles.header}>
         <Pressable onPress={onBack} hitSlop={14} style={styles.back}>
           <Text style={[styles.arrow, { color: theme.subtle }]}>‹</Text>
