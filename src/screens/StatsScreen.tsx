@@ -184,10 +184,11 @@ const styles = StyleSheet.create({
   back: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
   arrow: { fontSize: 28, lineHeight: 30 },
   title: { flex: 1, textAlign: 'center', fontSize: 18, fontWeight: '700' },
-  flow: { paddingHorizontal: 16, paddingBottom: 16, gap: 9 },
+  // flex:1 + space-between 让五块卡片撑满整屏、底部不留白；gap 作为最小间距。
+  flow: { flex: 1, paddingHorizontal: 16, paddingBottom: 12, gap: 9, justifyContent: 'space-between' },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: 80, paddingHorizontal: 40 },
   emptyText: { fontSize: 15, textAlign: 'center', lineHeight: 22 },
-  card: { borderRadius: 16, padding: 14 },
+  card: { borderRadius: 16, padding: 17 },
   row: { flexDirection: 'row', gap: 9 },
   mini: { flex: 1 },
   k: { fontSize: 11.5, fontWeight: '600' },
