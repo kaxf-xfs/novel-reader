@@ -39,10 +39,11 @@ export function selectContext(p: {
   // 1) current chapter read-so-far text (highest priority, always try first)
   const cur = p.currentChapterText.trim();
   if (cur) {
-    const slice = cur.slice(0, Math.max(0, room()));
+    const avail = Math.max(0, room());
+    const slice = cur.length > avail ? cur.slice(cur.length - avail) : cur;
     if (slice) {
       parts.push(`【当前章·已读】\n${slice}`);
-      used += slice.length + 8;
+      used += slice.length + 9; // 标签「【当前章·已读】\n」= 9 字符
     }
   }
 
@@ -63,8 +64,9 @@ export function selectContext(p: {
   const arcKept: string[] = [];
   for (let a = arcs.length - 1; a >= 0; a--) {
     const arc = arcs[a];
+    const arcFirstChapter = arc.idx * arcSize;
     const arcLastChapter = (arc.idx + 1) * arcSize - 1;
-    if (arcLastChapter >= oldestKeptChapterIdx) continue; // already covered by chapter detail
+    if (arcFirstChapter >= oldestKeptChapterIdx) continue; // 整弧已被章级细节覆盖；部分重叠则保留该弧，不留空洞
     const piece = `【第${arc.idx * arcSize + 1}-${arcLastChapter + 1}章·概要】${arc.summary}`;
     if (piece.length + 1 > room()) break;
     arcKept.unshift(piece);
