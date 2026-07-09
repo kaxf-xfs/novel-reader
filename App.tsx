@@ -8,6 +8,7 @@ import { ExpoFileGateway } from './src/lib/import/expoFileGateway';
 import { ExpoSettingsGateway } from './src/lib/settings/expoSettingsGateway';
 import { CANGER_FONT_FAMILY } from './src/lib/settings/styles';
 import { SettingsProvider } from './src/settings/SettingsContext';
+import { AiConfigProvider } from './src/settings/AiConfigContext';
 import { LibraryScreen } from './src/screens/LibraryScreen';
 import { ReaderScreen } from './src/screens/ReaderScreen';
 import { StatsScreen } from './src/screens/StatsScreen';
@@ -26,6 +27,7 @@ export default function App() {
   const repo = useMemo(() => new SqliteBookRepository(), []);
   const fs = useMemo(() => new ExpoFileGateway(), []);
   const settingsGateway = useMemo(() => new ExpoSettingsGateway(), []);
+  const aiGateway = useMemo(() => new ExpoSettingsGateway('ai-config.json'), []);
 
   const openBook = useCallback((bookId: string) => {
     setScreen({ name: 'reader', bookId });
@@ -41,16 +43,18 @@ export default function App() {
 
   return (
     <SettingsProvider gateway={settingsGateway}>
-      <View style={styles.container}>
-        <StatusBar style="dark" />
-        {screen.name === 'library' ? (
-          <LibraryScreen repo={repo} fs={fs} onOpenBook={openBook} onOpenStats={openStats} />
-        ) : screen.name === 'reader' ? (
-          <ReaderScreen repo={repo} fs={fs} bookId={screen.bookId} onBack={backToLibrary} />
-        ) : (
-          <StatsScreen repo={repo} onBack={backToLibrary} />
-        )}
-      </View>
+      <AiConfigProvider gateway={aiGateway}>
+        <View style={styles.container}>
+          <StatusBar style="dark" />
+          {screen.name === 'library' ? (
+            <LibraryScreen repo={repo} fs={fs} onOpenBook={openBook} onOpenStats={openStats} />
+          ) : screen.name === 'reader' ? (
+            <ReaderScreen repo={repo} fs={fs} bookId={screen.bookId} onBack={backToLibrary} />
+          ) : (
+            <StatsScreen repo={repo} onBack={backToLibrary} />
+          )}
+        </View>
+      </AiConfigProvider>
     </SettingsProvider>
   );
 }
