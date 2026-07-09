@@ -61,7 +61,7 @@ export function StatsScreen({ repo, onBack }: StatsScreenProps) {
       longest: longestStreak(sessions),
       active: activeDays(sessions),
       avg: averageDailyMs(sessions),
-      buckets: dailyBuckets(sessions, now, 56),
+      buckets: dailyBuckets(sessions, now, 28),
       topTitle,
       topMs,
       topPct: total > 0 ? Math.round((topMs / total) * 100) : 0,
@@ -79,12 +79,12 @@ export function StatsScreen({ repo, onBack }: StatsScreenProps) {
     if (ms < 60 * 60_000) return `${theme.accent}94`;
     return theme.accent;
   };
-  // 最近 8 周 → 8 列(周) × 7 行(天)，buckets[55] 为今天，最右列为本周。
-  const heatColumns: number[][] = [];
-  for (let c = 0; c < 8; c++) {
-    const col: number[] = [];
-    for (let r = 0; r < 7; r++) col.push(stats.buckets[c * 7 + r] ?? 0);
-    heatColumns.push(col);
+  // 最近 4 周 → 4 行(周) × 7 列(天)，buckets[27] 为今天，最下一行为本周。
+  const heatRows: number[][] = [];
+  for (let w = 0; w < 4; w++) {
+    const row: number[] = [];
+    for (let d = 0; d < 7; d++) row.push(stats.buckets[w * 7 + d] ?? 0);
+    heatRows.push(row);
   }
 
   return (
@@ -150,10 +150,10 @@ export function StatsScreen({ repo, onBack }: StatsScreenProps) {
             </View>
           )}
 
-          {/* 最近 8 周热力图 */}
+          {/* 最近 4 周热力图 */}
           <View style={[styles.card, { backgroundColor: soft }]}>
             <View style={styles.heatHead}>
-              <Text style={[styles.k, { color: theme.subtle }]}>最近 8 周</Text>
+              <Text style={[styles.k, { color: theme.subtle }]}>最近 4 周</Text>
               <View style={styles.legend}>
                 <Text style={[styles.legendText, { color: theme.subtle }]}>少</Text>
                 {[0, 10 * 60_000, 40 * 60_000, 90 * 60_000].map((ms, i) => (
@@ -163,10 +163,10 @@ export function StatsScreen({ repo, onBack }: StatsScreenProps) {
               </View>
             </View>
             <View style={styles.heatGrid}>
-              {heatColumns.map((col, ci) => (
-                <View key={ci} style={styles.heatCol}>
-                  {col.map((ms, ri) => (
-                    <View key={ri} style={[styles.heatCell, { backgroundColor: heatColor(ms) }]} />
+              {heatRows.map((row, ri) => (
+                <View key={ri} style={styles.heatRow}>
+                  {row.map((ms, di) => (
+                    <View key={di} style={[styles.heatCell, { backgroundColor: heatColor(ms) }]} />
                   ))}
                 </View>
               ))}
@@ -201,7 +201,7 @@ const styles = StyleSheet.create({
   legend: { flexDirection: 'row', alignItems: 'center', gap: 3 },
   legendText: { fontSize: 10.5 },
   legendCell: { width: 9, height: 9, borderRadius: 2 },
-  heatGrid: { flexDirection: 'row', gap: 4 },
-  heatCol: { flex: 1, gap: 4 },
-  heatCell: { width: '100%', aspectRatio: 1, borderRadius: 3 },
+  heatGrid: { flexDirection: 'column', gap: 4 },
+  heatRow: { flexDirection: 'row', gap: 4 },
+  heatCell: { flex: 1, aspectRatio: 1, borderRadius: 3 },
 });
