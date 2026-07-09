@@ -10,11 +10,11 @@
 import { File, Paths } from 'expo-file-system';
 import type { SettingsGateway } from './store';
 
-const SETTINGS_FILENAME = 'settings.json';
-
 export class ExpoSettingsGateway implements SettingsGateway {
+  constructor(private readonly filename: string = 'settings.json') {}
+
   private file(): File {
-    return new File(Paths.document, SETTINGS_FILENAME);
+    return new File(Paths.document, this.filename);
   }
 
   async read(): Promise<string | null> {
