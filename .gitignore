@@ -42,3 +42,6 @@ yarn-error.*
 
 # local test corpus — copyrighted novels, used only as local Jest fixtures; do NOT push
 /reference
+
+# AI eval reports (contain book excerpts + model output) — do NOT push
+/scripts/ai-eval/out/
