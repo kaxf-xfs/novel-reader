@@ -1,0 +1,94 @@
+/** 增量 5: AI 配置弹窗——baseUrl / key（保密）/ model / 启用，本地保存 + 同意说明。 */
+import { useEffect, useRef, useState } from 'react';
+import { Modal, Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+
+import { DEFAULT_AI_CONFIG } from '../lib/ai/config';
+import { resolveTheme } from '../lib/settings/styles';
+import { useAiConfig } from './AiConfigContext';
+import { useSettings } from './SettingsContext';
+
+export function AiSettingsModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+  const { settings } = useSettings();
+  const theme = resolveTheme(settings.themeId);
+  const { aiConfig, update } = useAiConfig();
+
+  const [baseUrl, setBaseUrl] = useState(aiConfig.baseUrl);
+  const [apiKey, setApiKey] = useState(aiConfig.apiKey);
+  const [model, setModel] = useState(aiConfig.model);
+  const [enabled, setEnabled] = useState(aiConfig.enabled);
+
+  // Resync from the persisted config only on the opening edge (closed -> open),
+  // not on every render where `visible` stays true. `aiConfig` gets a fresh
+  // object identity whenever the provider's background load settles (e.g. its
+  // initial async read resolving *while the sheet is already open and being
+  // edited) — resyncing on every such change would silently wipe in-progress
+  // edits out from under the user before they hit save.
+  const wasVisible = useRef(false);
+  useEffect(() => {
+    if (visible && !wasVisible.current) {
+      setBaseUrl(aiConfig.baseUrl);
+      setApiKey(aiConfig.apiKey);
+      setModel(aiConfig.model);
+      setEnabled(aiConfig.enabled);
+    }
+    wasVisible.current = visible;
+  }, [visible, aiConfig]);
+
+  const save = () => {
+    update({ baseUrl, apiKey, model, enabled });
+    onClose();
+  };
+
+  const input = [styles.input, { color: theme.text, borderColor: theme.border }];
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={styles.backdrop} onPress={onClose} />
+      <View testID="ai-settings" style={[styles.sheet, { backgroundColor: theme.background, borderTopColor: theme.border }]}>
+        <Text style={[styles.title, { color: theme.heading }]}>AI 设置</Text>
+
+        <Text style={[styles.label, { color: theme.subtle }]}>服务地址（OpenAI 兼容）</Text>
+        <TextInput testID="ai-base-url" style={input} value={baseUrl} onChangeText={setBaseUrl}
+          placeholder={DEFAULT_AI_CONFIG.baseUrl} placeholderTextColor={theme.subtle} autoCapitalize="none" autoCorrect={false} />
+
+        <Text style={[styles.label, { color: theme.subtle }]}>API Key</Text>
+        <TextInput testID="ai-api-key" style={input} value={apiKey} onChangeText={setApiKey}
+          placeholder="sk-…" placeholderTextColor={theme.subtle} secureTextEntry autoCapitalize="none" autoCorrect={false} />
+
+        <Text style={[styles.label, { color: theme.subtle }]}>模型</Text>
+        <TextInput testID="ai-model" style={input} value={model} onChangeText={setModel}
+          placeholder={DEFAULT_AI_CONFIG.model} placeholderTextColor={theme.subtle} autoCapitalize="none" autoCorrect={false} />
+
+        {/* testID lives on the row Pressable (not the bare Switch): RNTL's
+            fireEvent.press resolves to an `onPress` prop, which the native
+            Switch host component doesn't expose — only `onValueChange`/`onChange`.
+            Wrapping the row keeps it testable and, as a bonus, lets users
+            toggle by tapping the label too. */}
+        <Pressable testID="ai-enable" onPress={() => setEnabled((v) => !v)} style={styles.row}>
+          <Text style={[styles.label, { color: theme.text, marginBottom: 0 }]}>启用 AI 伴读</Text>
+          <Switch value={enabled} onValueChange={setEnabled} />
+        </Pressable>
+
+        <Text style={[styles.note, { color: theme.subtle }]}>
+          启用后，正文与章节小结会发送到你配置的 AI 服务。API Key 仅保存在本机。
+        </Text>
+
+        <Pressable testID="ai-save" onPress={save} style={[styles.save, { backgroundColor: theme.accent }]}>
+          <Text style={styles.saveText}>保存</Text>
+        </Pressable>
+      </View>
+    </Modal>
+  );
+}
+
+const styles = StyleSheet.create({
+  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)' },
+  sheet: { position: 'absolute', left: 0, right: 0, bottom: 0, borderTopLeftRadius: 18, borderTopRightRadius: 18, borderTopWidth: StyleSheet.hairlineWidth, padding: 22, paddingBottom: 40 },
+  title: { fontSize: 18, fontWeight: '700', marginBottom: 16 },
+  label: { fontSize: 12.5, fontWeight: '600', marginBottom: 6, marginTop: 12 },
+  input: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15 },
+  row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 18 },
+  note: { fontSize: 12, lineHeight: 18, marginTop: 14 },
+  save: { marginTop: 20, borderRadius: 12, paddingVertical: 13, alignItems: 'center' },
+  saveText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+});
