@@ -36,6 +36,13 @@ export function selectContext(p: {
   let used = 0;
   const room = () => budget - used;
 
+  // Reserve headroom so recent chapter summaries can't devour the whole budget and
+  // starve the arc backbone. Without it, at deep positions (hundreds of read
+  // chapters) recent chapters fill every byte and the earliest chapters end up
+  // represented by nothing — a content hole. Bounded to what the arcs could
+  // actually need (~350 chars each), capped at 40% of budget.
+  const arcReserve = Math.min(Math.floor(budget * 0.4), arcs.length * 350);
+
   // 1) current chapter read-so-far text (highest priority, always try first)
   const cur = p.currentChapterText.trim();
   if (cur) {
@@ -47,30 +54,32 @@ export function selectContext(p: {
     }
   }
 
-  // 2) recent chapter summaries, newest→oldest, until budget runs low
+  // 2) recent chapter summaries, newest→oldest, leaving arcReserve for the backbone
   const recentKept: string[] = [];
   let oldestKeptChapterIdx = p.cutoff + 1;
   for (let i = chapters.length - 1; i >= 0; i--) {
     const c = chapters[i];
     const piece = `第${c.idx + 1}章：${c.summary}`;
-    if (piece.length + 1 > room()) break;
+    if (used + piece.length + 1 > budget - arcReserve) break;
     recentKept.unshift(piece);
     includedChapterIdx.unshift(c.idx);
     oldestKeptChapterIdx = c.idx;
     used += piece.length + 1;
   }
 
-  // 3) arc summaries for chapters older than the oldest kept chapter, newest→oldest
+  // 3) arc backbone for chapters older than the oldest kept chapter, EARLIEST first
+  // (earliest history is the most likely to be otherwise lost), filling up to the
+  // full budget.
   const arcKept: string[] = [];
-  for (let a = arcs.length - 1; a >= 0; a--) {
+  for (let a = 0; a < arcs.length; a++) {
     const arc = arcs[a];
     const arcFirstChapter = arc.idx * arcSize;
     const arcLastChapter = (arc.idx + 1) * arcSize - 1;
     if (arcFirstChapter >= oldestKeptChapterIdx) continue; // 整弧已被章级细节覆盖；部分重叠则保留该弧，不留空洞
     const piece = `【第${arc.idx * arcSize + 1}-${arcLastChapter + 1}章·概要】${arc.summary}`;
-    if (piece.length + 1 > room()) break;
-    arcKept.unshift(piece);
-    usedArcs.unshift(arc.idx);
+    if (used + piece.length + 1 > budget) break;
+    arcKept.push(piece);
+    usedArcs.push(arc.idx);
     used += piece.length + 1;
   }
 

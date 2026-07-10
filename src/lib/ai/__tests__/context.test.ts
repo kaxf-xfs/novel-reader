@@ -86,6 +86,27 @@ describe('selectContext', () => {
     expect(r.contextText).not.toContain('AAAAA'); // opening dropped
   });
 
+  it('keeps early-history arc coverage at deep positions (recent chapters must not starve arcs)', () => {
+    // 120 read chapters whose summaries alone blow the budget. Without reserving
+    // room for arcs, recent chapters fill everything and the earliest chapters end
+    // up represented by NOTHING (neither chapter detail nor an arc) — a deep-read
+    // content hole. selectContext must still surface the early arcs.
+    const body = 'x'.repeat(250);
+    const chapters = Array.from({ length: 120 }, (_, i) => chap(i, body));
+    const arcs = Array.from({ length: 4 }, (_, i) => arc(i, 'A'.repeat(200))); // arcs 0..3 cover chapters 0..99
+    const r = selectContext({
+      arcSummaries: arcs,
+      chapterSummaries: chapters,
+      currentChapterText: '',
+      cutoff: 119,
+      budgetChars: 12000,
+    });
+    expect(r.usedArcs.length).toBeGreaterThan(0); // arcs included (was 0 — the bug)
+    expect(r.usedArcs).toContain(0); // earliest arc present → early history not lost
+    expect(Math.max(...r.includedChapterIdx)).toBe(119); // recent detail still kept
+    expect(r.contextText.length).toBeLessThanOrEqual(12000 + 300); // still within budget
+  });
+
   it('exposes a sane default budget', () => {
     expect(CONTEXT_BUDGET).toBeGreaterThan(0);
   });
