@@ -39,11 +39,17 @@ import { searchBook } from '../lib/reader/searchBook';
 import { useReaderStatus } from '../lib/reader/useReaderStatus';
 import { computeReaderStyles } from '../lib/settings/styles';
 import { useSettings } from '../settings/SettingsContext';
+import { useAiConfig } from '../settings/AiConfigContext';
 import { ReaderSettingsSheet } from '../settings/ReaderSettingsSheet';
+import { AiSettingsModal } from '../settings/AiSettingsModal';
 import { TocSheet } from '../reader/TocSheet';
 import { ProgressJumpSheet } from '../reader/ProgressJumpSheet';
 import { BookmarksSheet } from '../reader/BookmarksSheet';
+import { AiPanel, type AiRunParams } from '../reader/AiPanel';
 import { useReadingSession } from '../reader/useReadingSession';
+import { buildReadContext, askBookMessages, storySoFarMessages, characterMessages } from '../lib/ai/companion';
+import { chatComplete } from '../lib/ai/client';
+import type { SummarizeFn } from '../lib/ai/summarize';
 
 interface ReaderScreenProps {
   repo: BookRepository;
@@ -95,11 +101,14 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
       void repo.addSession(s);
     },
   });
+  const { aiConfig, update: updateAiConfig } = useAiConfig();
 
   const [showSettings, setShowSettings] = useState(false);
   const [showToc, setShowToc] = useState(false);
   const [showJump, setShowJump] = useState(false);
   const [showBookmarks, setShowBookmarks] = useState(false);
+  const [showAi, setShowAi] = useState(false);
+  const [showAiSettings, setShowAiSettings] = useState(false);
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
   const [highlightTerm, setHighlightTerm] = useState<string | null>(null);
   // The slim top bar is always visible; tapping the page toggles the bottom
@@ -376,6 +385,39 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
     [fs, book, chapters],
   );
 
+  // AI 伴读：拼「已读内容」上下文（map-reduce 小结 + 当前章已读原文），按模式
+  // 选择 prompt，再发一次真正的问答请求。防剧透边界在 buildReadContext 内部。
+  const runAi = useCallback(
+    async ({ mode, input, onProgress, signal }: AiRunParams): Promise<string> => {
+      if (!book || !chapters) throw new Error('book not loaded');
+      const chat: SummarizeFn = async (messages, sig) =>
+        (
+          await chatComplete({ config: aiConfig, messages, signal: sig, maxTokens: 400, temperature: 0.3 })
+        ).content;
+      const { contextText } = await buildReadContext(
+        { chat, fs, repo },
+        {
+          book,
+          chapters,
+          currentChapterIndex,
+          currentBlockIndex: currentBlockIndexRef.current,
+          model: aiConfig.model,
+          signal,
+          onProgress,
+        },
+      );
+      const messages =
+        mode === 'ask'
+          ? askBookMessages(contextText, input)
+          : mode === 'recap'
+            ? storySoFarMessages(contextText)
+            : characterMessages(contextText, input);
+      const res = await chatComplete({ config: aiConfig, messages, signal, temperature: 0.4 });
+      return res.content;
+    },
+    [aiConfig, book, chapters, currentChapterIndex, fs, repo],
+  );
+
   // 打开书签列表时刷新（先展示 sheet，再异步填充列表，避免列表加载延迟阻塞开关反馈）
   const openBookmarks = useCallback(async () => {
     setShowBookmarks(true);
@@ -621,6 +663,7 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
             onPress={() => jumpToChapter(currentChapterIndex + 1)}
           />
           <BarButton label="排版" color={rs.theme.accent} onPress={() => setShowSettings(true)} />
+          <BarButton label="AI" color={rs.theme.accent} onPress={() => setShowAi(true)} />
         </View>
       )}
 
@@ -650,6 +693,19 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
         onDelete={deleteBookmark}
         onClose={() => setShowBookmarks(false)}
       />
+      <AiPanel
+        visible={showAi}
+        onClose={() => setShowAi(false)}
+        configured={aiConfig.enabled && aiConfig.apiKey.length > 0}
+        consented={aiConfig.consentAt !== null}
+        onOpenSettings={() => {
+          setShowAi(false);
+          setShowAiSettings(true);
+        }}
+        onConsent={() => updateAiConfig({ consentAt: Date.now() })}
+        run={runAi}
+      />
+      <AiSettingsModal visible={showAiSettings} onClose={() => setShowAiSettings(false)} />
     </View>
   );
 }

@@ -1,7 +1,9 @@
 import { act, fireEvent, waitFor, within } from '@testing-library/react-native';
 
 import { InMemoryBookRepository } from '../../lib/import/repository';
+import { InMemorySettingsGateway } from '../../lib/settings/store';
 import { resolveTheme } from '../../lib/settings/styles';
+import { AiConfigProvider } from '../../settings/AiConfigContext';
 import { FakeFileGateway, seedReader } from '../../test-utils/fakes';
 import { renderWithSettings } from '../../test-utils/render';
 import { ReaderScreen } from '../ReaderScreen';
@@ -30,7 +32,9 @@ function renderReader(
   onBack: () => void = () => {},
 ) {
   return renderWithSettings(
-    <ReaderScreen repo={repo} fs={fs} bookId={bookId} onBack={onBack} />,
+    <AiConfigProvider gateway={new InMemorySettingsGateway()}>
+      <ReaderScreen repo={repo} fs={fs} bookId={bookId} onBack={onBack} />
+    </AiConfigProvider>,
   );
 }
 
@@ -373,5 +377,16 @@ describe('ReaderScreen', () => {
       );
       expect(hit).toBeTruthy();
     });
+  });
+
+  it('shows the AI bottom-bar button after tapping to reveal chrome', async () => {
+    const { repo, fs } = setup();
+    await seedReader(repo, fs, { bookId: 'bai', chapters: CHAPTERS, progressChapterIndex: 0 });
+
+    const { findByText, getByTestId } = renderReader(repo, fs, 'bai');
+
+    await findByText(/内容一。/);
+    tapSurface(getByTestId('reader-surface')); // reveal bottom bar
+    expect(await findByText('AI')).toBeTruthy();
   });
 });
