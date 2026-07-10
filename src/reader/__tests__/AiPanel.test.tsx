@@ -47,4 +47,23 @@ describe('AiPanel', () => {
     fireEvent.press(getByTestId('ai-submit'));
     expect(await findByTestId('ai-error')).toBeTruthy();
   });
+
+  it('runs recap mode with no input via the generate button', async () => {
+    const run = jest.fn(async () => '前情提要…');
+    const { findByTestId, getByTestId } = renderWithSettings(<AiPanel {...base} run={run} />);
+    fireEvent.press(await findByTestId('ai-tab-recap'));
+    fireEvent.press(getByTestId('ai-generate'));
+    expect(await findByTestId('ai-result')).toHaveTextContent('前情提要', { exact: false });
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({ mode: 'recap' }));
+  });
+
+  it('runs character mode with a name', async () => {
+    const run = jest.fn(async () => '张三是…');
+    const { findByTestId, getByTestId } = renderWithSettings(<AiPanel {...base} run={run} />);
+    fireEvent.press(await findByTestId('ai-tab-character'));
+    fireEvent.changeText(getByTestId('ai-ask-input'), '张三');
+    fireEvent.press(getByTestId('ai-submit'));
+    expect(await findByTestId('ai-result')).toHaveTextContent('张三是', { exact: false });
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({ mode: 'character', input: '张三' }));
+  });
 });

@@ -43,6 +43,7 @@ export function AiPanel({ visible, onClose, configured, consented, onOpenSetting
   const { settings } = useSettings();
   const theme = resolveTheme(settings.themeId);
 
+  const [mode, setMode] = useState<AiMode>('ask');
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
@@ -50,9 +51,9 @@ export function AiPanel({ visible, onClose, configured, consented, onOpenSetting
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  const submit = async () => {
-    const q = input.trim();
-    if (!q || busy) return;
+  const runMode = async (m: AiMode, text: string) => {
+    if (busy) return;
+    if ((m === 'ask' || m === 'character') && !text.trim()) return;
     setBusy(true);
     setResult(null);
     setError(null);
@@ -61,13 +62,15 @@ export function AiPanel({ visible, onClose, configured, consented, onOpenSetting
     abortRef.current = ctrl;
     try {
       const answer = await run({
-        mode: 'ask',
-        input: q,
+        mode: m,
+        input: text.trim(),
         onProgress: (done, total) => setProgress({ done, total }),
         signal: ctrl.signal,
       });
+      if (ctrl.signal.aborted) return;
       setResult(answer);
     } catch (e) {
+      if (ctrl.signal.aborted) return;
       setError(errorText(e));
     } finally {
       setBusy(false);
@@ -103,20 +106,45 @@ export function AiPanel({ visible, onClose, configured, consented, onOpenSetting
     }
     return (
       <View style={styles.flex}>
-        <TextInput
-          testID="ai-ask-input"
-          style={[styles.input, { color: theme.text, borderColor: theme.border }]}
-          placeholder="问一个关于已读内容的问题…"
-          placeholderTextColor={theme.subtle}
-          value={input}
-          onChangeText={setInput}
-          onSubmitEditing={submit}
-          editable={!busy}
-          returnKeyType="send"
-        />
-        <Pressable testID="ai-submit" onPress={submit} disabled={busy} style={[styles.primary, { backgroundColor: theme.accent, opacity: busy ? 0.5 : 1 }]}>
-          <Text style={styles.primaryText}>提问</Text>
-        </Pressable>
+        <View style={styles.tabs}>
+          {([['recap', '回顾'], ['ask', '问书'], ['character', '人物']] as const).map(([m, label]) => (
+            <Pressable
+              key={m}
+              testID={`ai-tab-${m}`}
+              onPress={() => { setMode(m); setResult(null); setError(null); }}
+              style={[styles.tab, mode === m && { backgroundColor: theme.accent }]}
+            >
+              <Text style={[styles.tabText, { color: mode === m ? '#fff' : theme.subtle }]}>{label}</Text>
+            </Pressable>
+          ))}
+        </View>
+        {mode === 'recap' ? (
+          <Pressable
+            testID="ai-generate"
+            onPress={() => runMode('recap', '')}
+            disabled={busy}
+            style={[styles.primary, { backgroundColor: theme.accent, opacity: busy ? 0.5 : 1 }]}
+          >
+            <Text style={styles.primaryText}>生成回顾</Text>
+          </Pressable>
+        ) : (
+          <>
+            <TextInput
+              testID="ai-ask-input"
+              style={[styles.input, { color: theme.text, borderColor: theme.border }]}
+              placeholder={mode === 'character' ? '输入人物名…' : '问一个关于已读内容的问题…'}
+              placeholderTextColor={theme.subtle}
+              value={input}
+              onChangeText={setInput}
+              onSubmitEditing={() => runMode(mode, input)}
+              editable={!busy}
+              returnKeyType="send"
+            />
+            <Pressable testID="ai-submit" onPress={() => runMode(mode, input)} disabled={busy} style={[styles.primary, { backgroundColor: theme.accent, opacity: busy ? 0.5 : 1 }]}>
+              <Text style={styles.primaryText}>{mode === 'character' ? '查人物' : '提问'}</Text>
+            </Pressable>
+          </>
+        )}
         {busy && (
           <View style={styles.center}>
             <ActivityIndicator color={theme.accent} />
@@ -158,6 +186,9 @@ const styles = StyleSheet.create({
   title: { fontSize: 18, fontWeight: '700', marginBottom: 14 },
   center: { alignItems: 'center', justifyContent: 'center', paddingVertical: 24, gap: 14 },
   hint: { fontSize: 13.5, lineHeight: 20, textAlign: 'center' },
+  tabs: { flexDirection: 'row', gap: 8, marginBottom: 14 },
+  tab: { paddingHorizontal: 16, paddingVertical: 7, borderRadius: 9 },
+  tabText: { fontSize: 13.5, fontWeight: '600' },
   input: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15 },
   primary: { borderRadius: 12, paddingVertical: 12, paddingHorizontal: 24, alignItems: 'center', marginTop: 12 },
   primaryText: { color: '#fff', fontSize: 15, fontWeight: '700' },
