@@ -99,6 +99,14 @@ export function ResumeRecapCard({
       });
   };
 
+  // 取消在途生成、退回 needs-generation（可重试），而非像 × 那样关掉整张卡。
+  // in-flight promise 的 catch 因 signal.aborted 提前 return，不会覆盖此状态。
+  const handleCancelGenerate = () => {
+    abortRef.current?.abort();
+    runningRef.current = false;
+    setState({ phase: 'needs-generation' });
+  };
+
   if (!visible) return null;
 
   const body = () => {
@@ -126,6 +134,9 @@ export function ResumeRecapCard({
             <Text testID="recap-progress" style={[styles.hint, { color: theme.subtle }]}>
               正在整理最近章节… {state.progress ? `${state.progress.done}/${state.progress.total}` : ''}
             </Text>
+            <Pressable testID="recap-cancel" onPress={handleCancelGenerate} hitSlop={10}>
+              <Text style={[styles.cancel, { color: theme.subtle }]}>取消</Text>
+            </Pressable>
           </View>
         );
       case 'text':
@@ -151,7 +162,7 @@ export function ResumeRecapCard({
     >
       <View style={styles.headerRow}>
         <Text style={[styles.title, { color: theme.subtle }]}>
-          读到 {chapterLabel} · 上次阅读是 {daysSinceRead} 天前
+          读到 {chapterLabel} · {daysSinceRead > 0 ? `上次阅读是 ${daysSinceRead} 天前` : '上次阅读就在今天'}
         </Text>
         <Pressable testID="recap-dismiss" onPress={onDismiss} hitSlop={10}>
           <Text style={[styles.dismiss, { color: theme.subtle }]}>×</Text>
@@ -182,5 +193,6 @@ const styles = StyleSheet.create({
   hint: { fontSize: 13, lineHeight: 19, textAlign: 'center' },
   primary: { borderRadius: 10, paddingVertical: 10, alignItems: 'center' },
   primaryText: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  cancel: { fontSize: 13, textDecorationLine: 'underline' },
   text: { fontSize: 14.5, lineHeight: 22 },
 });

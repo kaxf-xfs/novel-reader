@@ -111,6 +111,8 @@ export async function generateRecentRecap(
     params.onProgress?.(done, total);
   }
   const hits = await deps.repo.listSummaries(params.book.id, 0, cutoff);
-  const recent = hits.filter((s) => s.idx >= from && s.idx <= cutoff);
+  const recent = hits.filter(
+    (s) => s.idx >= from && s.idx <= cutoff && s.model === params.model && s.promptVersion === SUMMARY_PROMPT_VERSION,
+  );
   return deps.chat(recapMessages(recent.map((s) => s.summary)), params.signal);
 }

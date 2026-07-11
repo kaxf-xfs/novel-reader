@@ -130,4 +130,39 @@ describe('ResumeRecapCard', () => {
     });
     expect(await screen.findByTestId('recap-error')).toHaveTextContent('生成回顾失败，请重试。', { exact: false });
   });
+
+  it('daysSinceRead=0 → 文案显示「就在今天」而非「0 天前」', async () => {
+    renderWithSettings(<ResumeRecapCard {...baseProps} daysSinceRead={0} />);
+    const card = await screen.findByTestId('resume-recap-card');
+    expect(card).toHaveTextContent('就在今天', { exact: false });
+    expect(card).not.toHaveTextContent('0 天前', { exact: false });
+  });
+
+  it('生成中点「取消」→ abort 在途请求并退回 needs-generation（不关整张卡）', async () => {
+    let capturedSignal: AbortSignal | undefined;
+    const generateRecap = jest.fn((_onP: (d: number, t: number) => void, signal: AbortSignal) => {
+      capturedSignal = signal;
+      return new Promise<string>(() => {
+        // never resolves — simulate an in-flight backfill
+      });
+    });
+    const onDismiss = jest.fn();
+    renderWithSettings(
+      <ResumeRecapCard
+        {...baseProps}
+        loadCachedRecap={async () => ({ kind: 'needs-generation' as const })}
+        generateRecap={generateRecap}
+        onDismiss={onDismiss}
+      />,
+    );
+    const btn = await screen.findByTestId('recap-generate');
+    await act(async () => {
+      fireEvent.press(btn);
+    });
+    fireEvent.press(await screen.findByTestId('recap-cancel'));
+    expect(capturedSignal?.aborted).toBe(true);
+    expect(onDismiss).not.toHaveBeenCalled(); // 取消 ≠ 关卡
+    // 退回 needs-generation：生成按钮重新出现、可重试
+    expect(await screen.findByTestId('recap-generate')).toBeTruthy();
+  });
 });
