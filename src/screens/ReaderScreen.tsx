@@ -435,9 +435,10 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
   const runAi = useCallback(
     async ({ mode, input, onProgress, signal }: AiRunParams): Promise<string> => {
       if (!book || !chapters) throw new Error('book not loaded');
+      // maxTokens 700：容纳 v2 更丰富的章小结（~450 字），避免 finish_reason:length 截断。
       const chat: SummarizeFn = async (messages, sig) =>
         (
-          await chatComplete({ config: aiConfig, messages, signal: sig, maxTokens: 400, temperature: 0.3 })
+          await chatComplete({ config: aiConfig, messages, signal: sig, maxTokens: 700, temperature: 0.3 })
         ).content;
       const { contextText } = await buildReadContext(
         { chat, fs, repo },
@@ -485,13 +486,14 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
     },
   );
 
-  // 续读回顾卡：缓存读取走 buildResumeRecap（只读已缓存的章节小结，不调用
-  // chat 生成新小结），生成走 generateRecentRecap（有界回填最近窗口缺失的
-  // 小结后再合成）。两者共用同一个 chat 适配器。
+  // 续读回顾卡：缓存读取走 buildResumeRecap（只读已缓存的章节小结 + 合成），
+  // 生成走 generateRecentRecap（有界回填最近窗口缺失的章小结后再合成）。两者
+  // 共用同一个 chat 适配器。maxTokens 700：generateRecentRecap 会用它生成 v2
+  // 章小结（~450 字），需足够上限；合成回顾本就短，700 只是上限不会拉长。
   const cachedChat: SummarizeFn = useCallback(
     async (messages, sig) =>
       (
-        await chatComplete({ config: aiConfig, messages, signal: sig, maxTokens: 200, temperature: 0.3 })
+        await chatComplete({ config: aiConfig, messages, signal: sig, maxTokens: 700, temperature: 0.3 })
       ).content,
     [aiConfig],
   );

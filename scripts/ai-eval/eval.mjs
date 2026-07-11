@@ -17,7 +17,7 @@
 //      · src/lib/ai/summarize.ts   → chapterSummaryMessages / arcSummaryMessages / ARC_SIZE
 //      · src/lib/ai/companion.ts    → SPOILER_RULE / askBookMessages / storySoFarMessages / characterMessages
 //      · src/lib/ai/context.ts      → selectContext / CONTEXT_BUDGET
-//      · src/screens/ReaderScreen.tsx → 小结 maxTokens 400 / temperature 0.3
+//      · src/screens/ReaderScreen.tsx → 小结 maxTokens 700 / temperature 0.3
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
@@ -97,9 +97,9 @@ async function runBook(file, enc, upto, out) {
   log(`  编码 ${enc} | 章 ${chapters.length} | 替换字符 ${fffd}${fffd > 30 ? '⚠️' : '✓'} | 读到第${CUR + 1}章「${chapters[CUR].title}」`);
 
   const summaries = new Array(chapters.length).fill(null); let truncated = 0; const t0 = Date.now();
-  await pool([...Array(cutoff + 1).keys()], CONCURRENCY, async (i) => { const { content, finishReason } = await chat(chapMsg(chapters[i].title, chapters[i].body), { maxTokens: 400, temperature: 0.3 }); summaries[i] = content; if (finishReason === 'length') truncated++; });
+  await pool([...Array(cutoff + 1).keys()], CONCURRENCY, async (i) => { const { content, finishReason } = await chat(chapMsg(chapters[i].title, chapters[i].body), { maxTokens: 700, temperature: 0.3 }); summaries[i] = content; if (finishReason === 'length') truncated++; });
   const lastArc = Math.floor((cutoff + 1) / ARC_SIZE) - 1; const arcSummaries = [];
-  for (let a = 0; a <= lastArc; a++) { const parts = []; for (let c = a * ARC_SIZE; c < (a + 1) * ARC_SIZE; c++) if (summaries[c]) parts.push(summaries[c]); const { content } = await chat(arcMsg(parts), { maxTokens: 500, temperature: 0.3 }); arcSummaries.push({ level: 1, idx: a, summary: content }); }
+  for (let a = 0; a <= lastArc; a++) { const parts = []; for (let c = a * ARC_SIZE; c < (a + 1) * ARC_SIZE; c++) if (summaries[c]) parts.push(summaries[c]); const { content } = await chat(arcMsg(parts), { maxTokens: 700, temperature: 0.3 }); arcSummaries.push({ level: 1, idx: a, summary: content }); }
   log(`  小结：${cutoff + 1} 章 + ${arcSummaries.length} 弧，用时 ${((Date.now() - t0) / 1000).toFixed(1)}s，截断 ${truncated}`);
 
   const curText = splitBlocks(`${chapters[CUR].title}\n${chapters[CUR].body}`).slice(0, CUR_BLOCK + 1).join('\n');
