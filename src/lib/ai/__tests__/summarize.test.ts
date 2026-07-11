@@ -136,4 +136,30 @@ describe('ensureSummaries', () => {
     expect((await repo.listSummaries('b1', 0, 999)).length).toBe(30);
     expect((await repo.listSummaries('b1', 1, 999)).map((s) => s.idx)).toEqual([0]); // arc 0 built
   });
+
+  // 弧级也受 upgradeStale 门控——否则版本 bump 后深读用户首次问书会触发大量弧重合并。
+  async function seedFullArc(repo: InMemoryBookRepository, arcModel: string) {
+    for (let i = 0; i <= ARC_SIZE; i++) {
+      await repo.putSummary({ bookId: 'b1', level: 0, idx: i, model: 'm', promptVersion: SUMMARY_PROMPT_VERSION, summary: `c${i}`, createdAt: 1 });
+    }
+    await repo.putSummary({ bookId: 'b1', level: 1, idx: 0, model: arcModel, promptVersion: SUMMARY_PROMPT_VERSION, summary: 'OLD_ARC', createdAt: 1 });
+  }
+
+  it('upgradeStale=false leaves a stale-version arc summary un-remerged', async () => {
+    const { repo, fs, book, chapters } = await setup(ARC_SIZE + 2);
+    await seedFullArc(repo, 'OLD'); // arc 0 from an old model
+    const chat = jest.fn(async () => 'REMERGED');
+    await ensureSummaries({ chat, fs, repo }, { book, chapters, cutoff: ARC_SIZE, model: 'm', upgradeStale: false });
+    expect(chat).not.toHaveBeenCalled(); // no chapter re-summary AND no arc re-merge
+    expect((await repo.getSummary('b1', 1, 0))?.summary).toBe('OLD_ARC');
+  });
+
+  it('upgradeStale=true (default) does re-merge a stale-version arc summary', async () => {
+    const { repo, fs, book, chapters } = await setup(ARC_SIZE + 2);
+    await seedFullArc(repo, 'OLD');
+    const chat = jest.fn(async () => 'REMERGED');
+    await ensureSummaries({ chat, fs, repo }, { book, chapters, cutoff: ARC_SIZE, model: 'm' });
+    expect(chat).toHaveBeenCalledTimes(1); // chapters all cached → only the arc re-merge
+    expect((await repo.getSummary('b1', 1, 0))?.summary).toBe('REMERGED');
+  });
 });

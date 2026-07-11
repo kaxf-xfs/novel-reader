@@ -119,7 +119,10 @@ export async function ensureSummaries(deps: Deps, params: EnsureSummariesParams)
     for (let arc = 0; arc <= lastCompleteArc; arc++) {
       throwIfCancelled();
       const existing = await repo.getSummary(book.id, 1, arc);
-      if (existing && existing.model === model && existing.promptVersion === SUMMARY_PROMPT_VERSION) continue;
+      // upgradeStale=false（全量按需保底路径）：任何已有弧小结都视为可用、不因
+      // model/promptVersion 变化重合并——否则版本 bump 后深读用户首次问书会触发
+      // cutoff/ARC_SIZE 次弧重合并（一次性但可观），与「版本容忍迁移」承诺相悖。
+      if (existing && (!upgradeStale || (existing.model === model && existing.promptVersion === SUMMARY_PROMPT_VERSION))) continue;
       const parts: string[] = [];
       for (let c = arc * ARC_SIZE; c < (arc + 1) * ARC_SIZE; c++) {
         const s = await repo.getSummary(book.id, 0, c);
