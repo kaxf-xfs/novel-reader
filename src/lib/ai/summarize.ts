@@ -44,6 +44,14 @@ export interface EnsureSummariesParams {
   concurrency?: number;
   signal?: AbortSignal;
   onProgress?: (done: number, total: number) => void;
+  /** Lower bound of the missing-chapter scan (inclusive). Default 0 (full scan). */
+  fromIdx?: number;
+  /**
+   * When false, any cached summary — even one from a different model/promptVersion —
+   * counts as "present" and is left alone (only truly-missing chapters are (re)summarized).
+   * Default true (existing full-scan/arc behavior).
+   */
+  upgradeStale?: boolean;
 }
 
 interface Deps {
@@ -66,17 +74,19 @@ async function runPool<T>(items: T[], concurrency: number, worker: (item: T) => 
 export async function ensureSummaries(deps: Deps, params: EnsureSummariesParams): Promise<void> {
   const { chat, fs, repo } = deps;
   const { book, chapters, cutoff, model, concurrency = 4, signal, onProgress } = params;
+  const { fromIdx = 0, upgradeStale = true } = params;
   if (cutoff < 0) return;
 
   const throwIfCancelled = () => {
     if (signal?.aborted) throw new AiError('cancelled', 'AI 已取消');
   };
 
-  // 1) which chapters in [0..cutoff] need a fresh summary?
+  // 1) which chapters in [fromIdx..cutoff] need a fresh summary?
   const missing: number[] = [];
-  for (let i = 0; i <= cutoff && i < chapters.length; i++) {
+  for (let i = fromIdx; i <= cutoff && i < chapters.length; i++) {
     const cached = await repo.getSummary(book.id, 0, i);
-    if (!cached || cached.model !== model || cached.promptVersion !== SUMMARY_PROMPT_VERSION) missing.push(i);
+    const isMissing = !cached || (upgradeStale && (cached.model !== model || cached.promptVersion !== SUMMARY_PROMPT_VERSION));
+    if (isMissing) missing.push(i);
   }
 
   const total = missing.length;
@@ -97,20 +107,24 @@ export async function ensureSummaries(deps: Deps, params: EnsureSummariesParams)
   });
 
   // 2) merge arc summaries for every COMPLETE arc (all its chapters <= cutoff).
-  const lastCompleteArc = Math.floor((cutoff + 1) / ARC_SIZE) - 1;
-  for (let arc = 0; arc <= lastCompleteArc; arc++) {
-    throwIfCancelled();
-    const existing = await repo.getSummary(book.id, 1, arc);
-    if (existing && existing.model === model && existing.promptVersion === SUMMARY_PROMPT_VERSION) continue;
-    const parts: string[] = [];
-    for (let c = arc * ARC_SIZE; c < (arc + 1) * ARC_SIZE; c++) {
-      const s = await repo.getSummary(book.id, 0, c);
-      if (s) parts.push(s.summary);
+  // Only when scanning from the start — a windowed (fromIdx > 0) auto-backfill
+  // doesn't have the full chapter range in view, so it must not build arcs.
+  if (fromIdx === 0) {
+    const lastCompleteArc = Math.floor((cutoff + 1) / ARC_SIZE) - 1;
+    for (let arc = 0; arc <= lastCompleteArc; arc++) {
+      throwIfCancelled();
+      const existing = await repo.getSummary(book.id, 1, arc);
+      if (existing && existing.model === model && existing.promptVersion === SUMMARY_PROMPT_VERSION) continue;
+      const parts: string[] = [];
+      for (let c = arc * ARC_SIZE; c < (arc + 1) * ARC_SIZE; c++) {
+        const s = await repo.getSummary(book.id, 0, c);
+        if (s) parts.push(s.summary);
+      }
+      const merged = await chat(arcSummaryMessages(parts), signal);
+      throwIfCancelled();
+      await repo.putSummary({
+        bookId: book.id, level: 1, idx: arc, model, promptVersion: SUMMARY_PROMPT_VERSION, summary: merged, createdAt: Date.now(),
+      });
     }
-    const merged = await chat(arcSummaryMessages(parts), signal);
-    throwIfCancelled();
-    await repo.putSummary({
-      bookId: book.id, level: 1, idx: arc, model, promptVersion: SUMMARY_PROMPT_VERSION, summary: merged, createdAt: Date.now(),
-    });
   }
 }
