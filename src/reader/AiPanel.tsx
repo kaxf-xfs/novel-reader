@@ -1,11 +1,14 @@
 /** 增量 5: AI 伴读面板（底部 Modal）。注入 run 回调驱动；各态：未配置/未同意/进度/生成/结果/错误。 */
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { AiError } from '../lib/ai/client';
 import type { AiMode } from '../lib/ai/companion';
 import { resolveTheme } from '../lib/settings/styles';
 import { useSettings } from '../settings/SettingsContext';
+
+/** 语义错误色（红），独立于阅读主题强调色，深浅底都可读。 */
+const ERROR_COLOR = '#d9534f';
 
 export interface AiRunParams {
   mode: AiMode;
@@ -50,10 +53,25 @@ export function AiPanel({ visible, onClose, configured, consented, onOpenSetting
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const runningRef = useRef(false);
+
+  // 关闭面板时取消在途请求并清空瞬时状态，下次打开是干净的（不残留上次结果/输入）。
+  useEffect(() => {
+    if (!visible) {
+      abortRef.current?.abort();
+      runningRef.current = false;
+      setBusy(false);
+      setProgress(null);
+      setResult(null);
+      setError(null);
+      setInput('');
+    }
+  }, [visible]);
 
   const runMode = async (m: AiMode, text: string) => {
-    if (busy) return;
+    if (runningRef.current) return; // ref 守卫：防极快双击放行两次
     if ((m === 'ask' || m === 'character') && !text.trim()) return;
+    runningRef.current = true;
     setBusy(true);
     setResult(null);
     setError(null);
@@ -73,6 +91,7 @@ export function AiPanel({ visible, onClose, configured, consented, onOpenSetting
       if (ctrl.signal.aborted) return;
       setError(errorText(e));
     } finally {
+      runningRef.current = false;
       setBusy(false);
       setProgress(null);
       abortRef.current = null;
@@ -85,7 +104,7 @@ export function AiPanel({ visible, onClose, configured, consented, onOpenSetting
     if (!configured) {
       return (
         <View testID="ai-need-config" style={styles.center}>
-          <Text style={[styles.hint, { color: theme.subtle }]}>还没配置 AI。填入你的 API Key 即可开始。</Text>
+          <Text style={[styles.hint, { color: theme.subtle }]}>还没配置 AI。填入 API Key 并打开「启用」开关即可开始。</Text>
           <Pressable testID="ai-open-settings" onPress={onOpenSettings} style={[styles.primary, { backgroundColor: theme.accent }]}>
             <Text style={styles.primaryText}>去设置</Text>
           </Pressable>
@@ -111,7 +130,7 @@ export function AiPanel({ visible, onClose, configured, consented, onOpenSetting
             <Pressable
               key={m}
               testID={`ai-tab-${m}`}
-              onPress={() => { setMode(m); setResult(null); setError(null); }}
+              onPress={() => { setMode(m); setResult(null); setError(null); setInput(''); }}
               style={[styles.tab, mode === m && { backgroundColor: theme.accent }]}
             >
               <Text style={[styles.tabText, { color: mode === m ? '#fff' : theme.subtle }]}>{label}</Text>
@@ -158,7 +177,7 @@ export function AiPanel({ visible, onClose, configured, consented, onOpenSetting
             </Pressable>
           </View>
         )}
-        {error && <Text testID="ai-error" style={[styles.error, { color: theme.accent }]}>{error}</Text>}
+        {error && <Text testID="ai-error" style={[styles.error, { color: ERROR_COLOR }]}>{error}</Text>}
         {result && (
           <ScrollView style={styles.flex}>
             <Text testID="ai-result" style={[styles.result, { color: theme.text }]}>{result}</Text>

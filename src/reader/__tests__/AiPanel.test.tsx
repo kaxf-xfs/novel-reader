@@ -1,5 +1,6 @@
 import { fireEvent, waitFor } from '@testing-library/react-native';
 import { renderWithSettings } from '../../test-utils/render';
+import { SettingsProvider } from '../../settings/SettingsContext';
 import { AiError } from '../../lib/ai/client';
 import { AiPanel } from '../AiPanel';
 
@@ -65,5 +66,46 @@ describe('AiPanel', () => {
     fireEvent.press(getByTestId('ai-submit'));
     expect(await findByTestId('ai-result')).toHaveTextContent('张三是', { exact: false });
     expect(run).toHaveBeenCalledWith(expect.objectContaining({ mode: 'character', input: '张三' }));
+  });
+
+  it('renders errors in a dedicated red, not the theme accent', async () => {
+    const run = jest.fn(async () => {
+      throw new AiError('network', 'offline');
+    });
+    const { findByTestId, getByTestId } = renderWithSettings(<AiPanel {...base} run={run} />);
+    fireEvent.changeText(await findByTestId('ai-ask-input'), 'x');
+    fireEvent.press(getByTestId('ai-submit'));
+    expect(await findByTestId('ai-error')).toHaveStyle({ color: '#d9534f' });
+  });
+
+  it('clears the input when switching tabs', async () => {
+    const { findByTestId, getByTestId } = renderWithSettings(<AiPanel {...base} />);
+    fireEvent.changeText(await findByTestId('ai-ask-input'), '张三');
+    fireEvent.press(getByTestId('ai-tab-character'));
+    expect(getByTestId('ai-ask-input').props.value).toBe('');
+  });
+
+  it('resets a stale result + input when the panel is closed and reopened', async () => {
+    const run = jest.fn(async () => '旧结果');
+    const { findByTestId, getByTestId, queryByTestId, gateway, rerender } = renderWithSettings(
+      <AiPanel {...base} run={run} />,
+    );
+    fireEvent.changeText(await findByTestId('ai-ask-input'), '问题');
+    fireEvent.press(getByTestId('ai-submit'));
+    await findByTestId('ai-result');
+
+    // close then reopen — should not show the previous result or keep the input
+    rerender(
+      <SettingsProvider gateway={gateway}>
+        <AiPanel {...base} visible={false} run={run} />
+      </SettingsProvider>,
+    );
+    rerender(
+      <SettingsProvider gateway={gateway}>
+        <AiPanel {...base} visible run={run} />
+      </SettingsProvider>,
+    );
+    expect(queryByTestId('ai-result')).toBeNull();
+    expect(getByTestId('ai-ask-input').props.value).toBe('');
   });
 });

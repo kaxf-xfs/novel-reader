@@ -698,10 +698,7 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
         onClose={() => setShowAi(false)}
         configured={aiConfig.enabled && aiConfig.apiKey.length > 0}
         consented={aiConfig.consentAt !== null}
-        onOpenSettings={() => {
-          setShowAi(false);
-          setShowAiSettings(true);
-        }}
+        onOpenSettings={() => setShowAiSettings(true)}
         onConsent={() => updateAiConfig({ consentAt: Date.now() })}
         run={runAi}
       />
