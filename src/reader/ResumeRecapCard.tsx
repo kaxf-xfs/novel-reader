@@ -164,7 +164,9 @@ export function ResumeRecapCard({
 const styles = StyleSheet.create({
   card: {
     position: 'absolute',
-    top: 56,
+    // Clears ReaderScreen's slim top bar (paddingTop 52 + content row ≈ 88
+    // tall) so the card never overlaps the back/title/clock row.
+    top: 92,
     left: 16,
     right: 16,
     borderRadius: 14,

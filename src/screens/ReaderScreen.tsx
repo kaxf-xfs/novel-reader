@@ -48,6 +48,8 @@ import { BookmarksSheet } from '../reader/BookmarksSheet';
 import { AiPanel, type AiRunParams } from '../reader/AiPanel';
 import { useReadingSession } from '../reader/useReadingSession';
 import { buildReadContext, askBookMessages, storySoFarMessages, characterMessages } from '../lib/ai/companion';
+import { isRecapDue, buildResumeRecap, generateRecentRecap } from '../lib/ai/recap';
+import { ResumeRecapCard } from '../reader/ResumeRecapCard';
 import { chatComplete } from '../lib/ai/client';
 import type { SummarizeFn } from '../lib/ai/summarize';
 
@@ -109,6 +111,7 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
   const [showBookmarks, setShowBookmarks] = useState(false);
   const [showAi, setShowAi] = useState(false);
   const [showAiSettings, setShowAiSettings] = useState(false);
+  const [showRecap, setShowRecap] = useState(false);
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
   const [highlightTerm, setHighlightTerm] = useState<string | null>(null);
   // The slim top bar is always visible; tapping the page toggles the bottom
@@ -144,6 +147,8 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
   // and no-op reveals when the surface was never masked).
   const restoringRef = useRef(false);
   const mountedRef = useRef(true);
+  // Guards the once-per-mount recap-due evaluation in the init effect.
+  const recapEvaluatedRef = useRef(false);
 
   const mask = useCallback(() => {
     restoringRef.current = true;
@@ -250,6 +255,23 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
         setHi(indices[indices.length - 1]);
         setBlocks(initialBlocks);
         setCurrentChapterIndex(startIndex);
+
+        if (!recapEvaluatedRef.current) {
+          recapEvaluatedRef.current = true;
+          const lastReadAt = progress?.updatedAt ?? null;
+          const due =
+            isRecapDue({
+              lastReadAt,
+              now: Date.now(),
+              gapDays: aiConfig.recapGapDays,
+              currentChapterIndex: startIndex,
+            }) &&
+            aiConfig.recapEnabled &&
+            aiConfig.enabled &&
+            aiConfig.apiKey.length > 0 &&
+            aiConfig.consentAt !== null;
+          if (due) setShowRecap(true);
+        }
 
         const savedBlock = progress?.charOffset ?? 0;
         currentBlockIndexRef.current = savedBlock;
@@ -416,6 +438,37 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
       return res.content;
     },
     [aiConfig, book, chapters, currentChapterIndex, fs, repo],
+  );
+
+  // 续读回顾卡：缓存读取走 buildResumeRecap（只读已缓存的章节小结，不调用
+  // chat 生成新小结），生成走 generateRecentRecap（有界回填最近窗口缺失的
+  // 小结后再合成）。两者共用同一个 chat 适配器。
+  const cachedChat: SummarizeFn = useCallback(
+    async (messages, sig) =>
+      (
+        await chatComplete({ config: aiConfig, messages, signal: sig, maxTokens: 200, temperature: 0.3 })
+      ).content,
+    [aiConfig],
+  );
+
+  const loadCachedRecap = useCallback(
+    (signal: AbortSignal) =>
+      buildResumeRecap(
+        { chat: cachedChat, repo },
+        { bookId, currentChapterIndex, model: aiConfig.model, signal },
+      ),
+    [cachedChat, repo, bookId, currentChapterIndex, aiConfig.model],
+  );
+
+  const generateRecap = useCallback(
+    (onProgress: (done: number, total: number) => void, signal: AbortSignal) => {
+      if (!book || !chapters) return Promise.reject(new Error('book not loaded'));
+      return generateRecentRecap(
+        { chat: cachedChat, fs, repo },
+        { book, chapters, currentChapterIndex, model: aiConfig.model, onProgress, signal },
+      );
+    },
+    [cachedChat, book, chapters, fs, repo, currentChapterIndex, aiConfig.model],
   );
 
   // 打开书签列表时刷新（先展示 sheet，再异步填充列表，避免列表加载延迟阻塞开关反馈）
@@ -693,6 +746,16 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
         onDelete={deleteBookmark}
         onClose={() => setShowBookmarks(false)}
       />
+      {showRecap && book && (
+        <ResumeRecapCard
+          visible={showRecap}
+          chapterLabel={currentTitle}
+          gapDays={aiConfig.recapGapDays}
+          loadCachedRecap={loadCachedRecap}
+          generateRecap={generateRecap}
+          onDismiss={() => setShowRecap(false)}
+        />
+      )}
       <AiPanel
         visible={showAi}
         onClose={() => setShowAi(false)}
