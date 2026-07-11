@@ -192,7 +192,13 @@ export function AiPanel({ visible, onClose, configured, consented, onOpenSetting
       <KeyboardAvoidingView style={styles.kav} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <Pressable style={styles.backdrop} onPress={onClose} />
         <View testID="ai-panel" style={[styles.sheet, { backgroundColor: theme.background, borderTopColor: theme.border }]}>
-          <Text style={[styles.title, { color: theme.heading }]}>AI 伴读</Text>
+          <View style={styles.header}>
+            <Text style={[styles.title, { color: theme.heading }]}>AI 伴读</Text>
+            {/* 配置好之后也能随时打开 AI 设置（改 key/模型/续读回顾阈值）。 */}
+            <Pressable testID="ai-open-settings-top" onPress={onOpenSettings} hitSlop={10}>
+              <Text style={[styles.settingsLink, { color: theme.subtle }]}>设置</Text>
+            </Pressable>
+          </View>
           {body()}
         </View>
       </KeyboardAvoidingView>
@@ -206,7 +212,9 @@ const styles = StyleSheet.create({
   // flex-end child of KeyboardAvoidingView (not absolute) so it lifts above the keyboard.
   sheet: { height: '72%', borderTopLeftRadius: 18, borderTopRightRadius: 18, borderTopWidth: StyleSheet.hairlineWidth, padding: 22, paddingBottom: 30 },
   flex: { flex: 1 },
-  title: { fontSize: 18, fontWeight: '700', marginBottom: 14 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
+  title: { fontSize: 18, fontWeight: '700' },
+  settingsLink: { fontSize: 14, fontWeight: '600' },
   center: { alignItems: 'center', justifyContent: 'center', paddingVertical: 24, gap: 14 },
   hint: { fontSize: 13.5, lineHeight: 20, textAlign: 'center' },
   tabs: { flexDirection: 'row', gap: 8, marginBottom: 14 },

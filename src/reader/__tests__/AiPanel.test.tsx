@@ -21,6 +21,15 @@ describe('AiPanel', () => {
     expect(() => getByTestId('ai-ask-input')).toThrow();
   });
 
+  it('exposes a settings entry in the header even once configured', async () => {
+    const onOpenSettings = jest.fn();
+    const { findByTestId } = renderWithSettings(
+      <AiPanel {...base} onOpenSettings={onOpenSettings} />,
+    );
+    fireEvent.press(await findByTestId('ai-open-settings-top'));
+    expect(onOpenSettings).toHaveBeenCalled();
+  });
+
   it('shows the consent gate when configured but not consented', async () => {
     const onConsent = jest.fn();
     const { findByTestId } = renderWithSettings(
