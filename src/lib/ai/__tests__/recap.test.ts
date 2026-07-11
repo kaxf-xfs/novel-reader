@@ -69,6 +69,27 @@ describe('buildResumeRecap（缓存路径）', () => {
     expect(r).toEqual({ kind: 'needs-generation' });
     expect(chat).not.toHaveBeenCalled();
   });
+
+  // cur=10 → cutoff=9，window 默认 6 → from=4；needed = min(6, cutoff+1=10, 3) = 3
+  test('近窗命中 = needed-1（2 条）→ needs-generation（不调用 chat）', async () => {
+    const repo = new InMemoryBookRepository();
+    await cachedSummary(repo, 'b1', 8);
+    await cachedSummary(repo, 'b1', 9);
+    const chat = jest.fn(async () => 'x');
+    const r = await buildResumeRecap({ chat, repo }, { bookId: 'b1', currentChapterIndex: 10, model: MODEL });
+    expect(r).toEqual({ kind: 'needs-generation' });
+    expect(chat).not.toHaveBeenCalled();
+  });
+
+  test('近窗命中 = needed（3 条）→ 合成 text', async () => {
+    const repo = new InMemoryBookRepository();
+    await cachedSummary(repo, 'b1', 7);
+    await cachedSummary(repo, 'b1', 8);
+    await cachedSummary(repo, 'b1', 9);
+    const chat = async () => '合成回顾';
+    const r = await buildResumeRecap({ chat, repo }, { bookId: 'b1', currentChapterIndex: 10, model: MODEL });
+    expect(r).toEqual({ kind: 'text', text: '合成回顾' });
+  });
 });
 
 describe('generateRecentRecap（有界回填）', () => {

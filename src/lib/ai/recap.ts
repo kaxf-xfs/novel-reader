@@ -1,7 +1,7 @@
 import type { FileGateway } from '../import/importBook';
 import type { BookRecord, BookRepository, ChapterRecord } from '../import/repository';
 import { readChapterText } from '../reader/readChapter';
-import type { ChatMessage } from './client';
+import { AiError, type ChatMessage } from './client';
 import { SUMMARY_PROMPT_VERSION, chapterSummaryMessages, type SummarizeFn } from './summarize';
 
 const DAY_MS = 86_400_000;
@@ -81,6 +81,7 @@ export async function generateRecentRecap(
 ): Promise<string> {
   const window = params.windowChapters ?? DEFAULT_WINDOW;
   const { cutoff, from } = recentRange(params.currentChapterIndex, window);
+  if (cutoff < 0) return '';
   // 找 recent 内需要回填的章（缺失或 model/pv 不匹配），全部 ≤ cutoff
   const missing: number[] = [];
   for (let i = from; i <= cutoff && i < params.chapters.length; i++) {
@@ -90,12 +91,13 @@ export async function generateRecentRecap(
   const total = missing.length;
   let done = 0;
   for (const i of missing) {
-    if (params.signal?.aborted) throw new Error('cancelled');
+    if (params.signal?.aborted) throw new AiError('cancelled', 'AI 已取消');
     const raw = await readChapterText(deps.fs, params.book.normalizedPath, params.chapters[i]); // i ≤ cutoff → spoiler-safe
     const nl = raw.indexOf('\n');
     const title = nl >= 0 ? raw.slice(0, nl) : raw;
     const body = nl >= 0 ? raw.slice(nl + 1) : '';
     const summary = await deps.chat(chapterSummaryMessages(title, body), params.signal);
+    if (params.signal?.aborted) throw new AiError('cancelled', 'AI 已取消');
     await deps.repo.putSummary({
       bookId: params.book.id,
       level: 0,
