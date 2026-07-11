@@ -47,6 +47,7 @@ import { ProgressJumpSheet } from '../reader/ProgressJumpSheet';
 import { BookmarksSheet } from '../reader/BookmarksSheet';
 import { AiPanel, type AiRunParams } from '../reader/AiPanel';
 import { useReadingSession } from '../reader/useReadingSession';
+import { useAutoSummarize } from '../reader/useAutoSummarize';
 import { buildReadContext, askBookMessages, storySoFarMessages, characterMessages } from '../lib/ai/companion';
 import { isRecapDue, buildResumeRecap, generateRecentRecap } from '../lib/ai/recap';
 import { ResumeRecapCard } from '../reader/ResumeRecapCard';
@@ -460,6 +461,28 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
       return res.content;
     },
     [aiConfig, book, chapters, currentChapterIndex, fs, repo],
+  );
+
+  // 增量7 T3：后台自动小结——章节前进后台静默补建/升级已读章的小结缓存，供
+  // AI 伴读复用（不打断阅读、无进度 UI）。maxTokens 提到 ~700 以容纳 v2 更长摘要。
+  const aiChat: SummarizeFn = useCallback(
+    async (messages, sig) =>
+      (
+        await chatComplete({ config: aiConfig, messages, signal: sig, maxTokens: 700, temperature: 0.3 })
+      ).content,
+    [aiConfig],
+  );
+  useAutoSummarize(
+    { chat: aiChat, fs, repo },
+    {
+      enabled:
+        aiConfig.autoSummarize && aiConfig.enabled && aiConfig.apiKey.length > 0 && aiConfig.consentAt !== null,
+      book,
+      chapters,
+      currentChapterIndex,
+      restoring,
+      model: aiConfig.model,
+    },
   );
 
   // 续读回顾卡：缓存读取走 buildResumeRecap（只读已缓存的章节小结，不调用
