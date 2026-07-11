@@ -63,7 +63,9 @@ export async function buildReadContext(
   const { book, chapters, currentChapterIndex, currentBlockIndex, model, signal, onProgress } = params;
   const cutoff = currentChapterIndex - 1;
 
-  await ensureSummaries({ chat, fs, repo }, { book, chapters, cutoff, model, signal, onProgress });
+  // 全量按需保底但 upgradeStale=false：旧版本摘要照用、只补真缺，绝不在一次
+  // 回顾/人物调用里同步重刷全书（与 buildAskContext 一致的版本容忍迁移）。
+  await ensureSummaries({ chat, fs, repo }, { book, chapters, cutoff, model, signal, onProgress, upgradeStale: false });
 
   const chapterSummaries = await repo.listSummaries(book.id, 0, cutoff);
   const lastArc = Math.floor((cutoff + 1) / ARC_SIZE) - 1;
