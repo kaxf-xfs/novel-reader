@@ -437,7 +437,8 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
   );
 
   // AI 伴读：拼「已读内容」上下文（map-reduce 小结 + 当前章已读原文），按模式
-  // 选择 prompt，再发一次真正的问答请求。防剧透边界在 buildReadContext 内部。
+  // 选择 prompt，再发一次真正的问答请求。防剧透边界在 buildReadContext /
+  // buildAskContext 内部（ask 走查询感知的 buildAskContext，recap/人物走 buildReadContext）。
   const runAi = useCallback(
     async ({ mode, input, onProgress, signal }: AiRunParams): Promise<string> => {
       if (!book || !chapters) throw new Error('book not loaded');
