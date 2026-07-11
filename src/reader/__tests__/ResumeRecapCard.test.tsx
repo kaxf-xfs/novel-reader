@@ -101,4 +101,33 @@ describe('ResumeRecapCard', () => {
     });
     await screen.findByTestId('recap-text');
   });
+
+  it('loadCachedRecap 失败 → 展示 recap-error', async () => {
+    renderWithSettings(
+      <ResumeRecapCard
+        {...baseProps}
+        loadCachedRecap={async () => {
+          throw new Error('load failed');
+        }}
+      />,
+    );
+    expect(await screen.findByTestId('recap-error')).toHaveTextContent('加载回顾失败，请重试。', { exact: false });
+  });
+
+  it('needs-generation → 点击生成后 generateRecap 失败 → 展示 recap-error', async () => {
+    renderWithSettings(
+      <ResumeRecapCard
+        {...baseProps}
+        loadCachedRecap={async () => ({ kind: 'needs-generation' as const })}
+        generateRecap={async () => {
+          throw new Error('generate failed');
+        }}
+      />,
+    );
+    const btn = await screen.findByTestId('recap-generate');
+    await act(async () => {
+      fireEvent.press(btn);
+    });
+    expect(await screen.findByTestId('recap-error')).toHaveTextContent('生成回顾失败，请重试。', { exact: false });
+  });
 });

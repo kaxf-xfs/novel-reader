@@ -39,6 +39,7 @@ export function ResumeRecapCard({
 
   const [state, setState] = useState<CardState>({ phase: 'loading' });
   const abortRef = useRef<AbortController | null>(null);
+  const runningRef = useRef(false);
 
   // visible → true: 拉取缓存回顾；visible → false / 卸载: abort 在途请求，防
   // setState-after-unmount。
@@ -65,12 +66,18 @@ export function ResumeRecapCard({
         setState({ phase: 'error', message: '加载回顾失败，请重试。' });
       });
     return () => {
-      ctrl.abort();
+      // 用 abortRef.current 而非闭包里的 ctrl：若组件在 generating 阶段被直接卸载
+      // （未先经过 visible→false），abortRef.current 此时指向 handleGenerate 建的
+      // 新 controller，这样才能真正取消在途的生成请求，而不是 abort 一个早已
+      // resolve 的加载 controller（那样会导致生成请求在后台跑完，白烧 API）。
+      abortRef.current?.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 回调 identity 不参与依赖，避免重复触发
   }, [visible]);
 
   const handleGenerate = () => {
+    if (runningRef.current) return; // ref 守卫：防极快双击建两个 controller
+    runningRef.current = true;
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     setState({ phase: 'generating', progress: null });
@@ -85,6 +92,9 @@ export function ResumeRecapCard({
       .catch(() => {
         if (ctrl.signal.aborted) return;
         setState({ phase: 'error', message: '生成回顾失败，请重试。' });
+      })
+      .finally(() => {
+        runningRef.current = false;
       });
   };
 
@@ -125,7 +135,7 @@ export function ResumeRecapCard({
         );
       case 'error':
         return (
-          <Text style={[styles.hint, { color: ERROR_COLOR }]}>{state.message}</Text>
+          <Text testID="recap-error" style={[styles.hint, { color: ERROR_COLOR }]}>{state.message}</Text>
         );
       default:
         return null;
