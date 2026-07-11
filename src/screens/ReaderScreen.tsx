@@ -103,7 +103,7 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
       void repo.addSession(s);
     },
   });
-  const { aiConfig, update: updateAiConfig } = useAiConfig();
+  const { aiConfig, ready: aiConfigReady, update: updateAiConfig } = useAiConfig();
 
   const [showSettings, setShowSettings] = useState(false);
   const [showToc, setShowToc] = useState(false);
@@ -147,8 +147,15 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
   // and no-op reveals when the surface was never masked).
   const restoringRef = useRef(false);
   const mountedRef = useRef(true);
-  // Guards the once-per-mount recap-due evaluation in the init effect.
+  // Guards the once-per-mount recap-due evaluation (runs once `ready` &&
+  // `book` && `chapters` are all set, in a dedicated effect — see below).
   const recapEvaluatedRef = useRef(false);
+  // Captured by the init effect for the recap-due evaluation: the chapter the
+  // reader opened on and the saved progress timestamp. Refs (not state) so the
+  // due-check effect reads the *initial* position rather than wherever the
+  // user has scrolled to since mount.
+  const initStartIndexRef = useRef(0);
+  const lastReadAtRef = useRef<number | null>(null);
 
   const mask = useCallback(() => {
     restoringRef.current = true;
@@ -256,22 +263,10 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
         setBlocks(initialBlocks);
         setCurrentChapterIndex(startIndex);
 
-        if (!recapEvaluatedRef.current) {
-          recapEvaluatedRef.current = true;
-          const lastReadAt = progress?.updatedAt ?? null;
-          const due =
-            isRecapDue({
-              lastReadAt,
-              now: Date.now(),
-              gapDays: aiConfig.recapGapDays,
-              currentChapterIndex: startIndex,
-            }) &&
-            aiConfig.recapEnabled &&
-            aiConfig.enabled &&
-            aiConfig.apiKey.length > 0 &&
-            aiConfig.consentAt !== null;
-          if (due) setShowRecap(true);
-        }
+        // Recap-due evaluation happens in a separate effect once `aiConfig` has
+        // finished loading from disk (see below) — stash the inputs it needs.
+        initStartIndexRef.current = startIndex;
+        lastReadAtRef.current = progress?.updatedAt ?? null;
 
         const savedBlock = progress?.charOffset ?? 0;
         currentBlockIndexRef.current = savedBlock;
@@ -293,6 +288,33 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
       cancelled = true;
     };
   }, [bookId, repo, fs, loadWindow]);
+
+  // Recap-due evaluation — separate from the init effect above because
+  // `aiConfig` loads asynchronously from disk (initial value is
+  // DEFAULT_AI_CONFIG, enabled=false). Evaluating inside the once-only init
+  // effect would close over that stale default and the card would never show.
+  // Waits for `ready` (aiConfig loaded), `book`, and `chapters` before running
+  // once per mount; uses the *initial* chapter/timestamp captured by the init
+  // effect (refs), not live state, so scrolling before this effect fires can't
+  // skew the due check.
+  useEffect(() => {
+    if (recapEvaluatedRef.current) return;
+    if (!aiConfigReady || !book || chapters == null) return;
+    recapEvaluatedRef.current = true;
+    const startIndex = initStartIndexRef.current;
+    const due =
+      isRecapDue({
+        lastReadAt: lastReadAtRef.current,
+        now: Date.now(),
+        gapDays: aiConfig.recapGapDays,
+        currentChapterIndex: startIndex,
+      }) &&
+      aiConfig.recapEnabled &&
+      aiConfig.enabled &&
+      aiConfig.apiKey.length > 0 &&
+      aiConfig.consentAt !== null;
+    if (due) setShowRecap(true);
+  }, [aiConfigReady, book, chapters, aiConfig]);
 
   // Clear any pending timers on unmount.
   useEffect(() => {
@@ -750,7 +772,11 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
         <ResumeRecapCard
           visible={showRecap}
           chapterLabel={currentTitle}
-          gapDays={aiConfig.recapGapDays}
+          daysSinceRead={
+            lastReadAtRef.current != null
+              ? Math.floor((Date.now() - lastReadAtRef.current) / 86_400_000)
+              : 0
+          }
           loadCachedRecap={loadCachedRecap}
           generateRecap={generateRecap}
           onDismiss={() => setShowRecap(false)}

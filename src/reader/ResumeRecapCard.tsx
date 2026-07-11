@@ -13,7 +13,8 @@ export type CachedRecapResult = { kind: 'text'; text: string } | { kind: 'needs-
 export interface ResumeRecapCardProps {
   visible: boolean;
   chapterLabel: string;
-  gapDays: number;
+  /** Actual elapsed days since the reader was last opened (not a config threshold). */
+  daysSinceRead: number;
   loadCachedRecap: (signal: AbortSignal) => Promise<CachedRecapResult>;
   generateRecap: (onProgress: (done: number, total: number) => void, signal: AbortSignal) => Promise<string>;
   onDismiss: () => void;
@@ -29,7 +30,7 @@ type CardState =
 export function ResumeRecapCard({
   visible,
   chapterLabel,
-  gapDays,
+  daysSinceRead,
   loadCachedRecap,
   generateRecap,
   onDismiss,
@@ -150,7 +151,7 @@ export function ResumeRecapCard({
     >
       <View style={styles.headerRow}>
         <Text style={[styles.title, { color: theme.subtle }]}>
-          读到 {chapterLabel} · 上次是 {gapDays} 天前
+          读到 {chapterLabel} · 上次阅读是 {daysSinceRead} 天前
         </Text>
         <Pressable testID="recap-dismiss" onPress={onDismiss} hitSlop={10}>
           <Text style={[styles.dismiss, { color: theme.subtle }]}>×</Text>

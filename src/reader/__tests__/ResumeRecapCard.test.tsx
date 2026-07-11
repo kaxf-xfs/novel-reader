@@ -7,7 +7,7 @@ import { ResumeRecapCard } from '../ResumeRecapCard';
 const baseProps = {
   visible: true,
   chapterLabel: '第 12 章',
-  gapDays: 7,
+  daysSinceRead: 12,
   loadCachedRecap: async () => ({ kind: 'text' as const, text: '前情回顾内容' }),
   generateRecap: async () => '生成结果',
   onDismiss: jest.fn(),
