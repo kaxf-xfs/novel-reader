@@ -1,6 +1,6 @@
 /** 增量 5: AI 伴读面板（底部 Modal）。注入 run 回调驱动；各态：未配置/未同意/进度/生成/结果/错误。 */
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { AiError } from '../lib/ai/client';
 import type { AiMode } from '../lib/ai/companion';
@@ -189,18 +189,22 @@ export function AiPanel({ visible, onClose, configured, consented, onOpenSetting
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose} />
-      <View testID="ai-panel" style={[styles.sheet, { backgroundColor: theme.background, borderTopColor: theme.border }]}>
-        <Text style={[styles.title, { color: theme.heading }]}>AI 伴读</Text>
-        {body()}
-      </View>
+      <KeyboardAvoidingView style={styles.kav} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <Pressable style={styles.backdrop} onPress={onClose} />
+        <View testID="ai-panel" style={[styles.sheet, { backgroundColor: theme.background, borderTopColor: theme.border }]}>
+          <Text style={[styles.title, { color: theme.heading }]}>AI 伴读</Text>
+          {body()}
+        </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
+  kav: { flex: 1 },
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)' },
-  sheet: { position: 'absolute', left: 0, right: 0, bottom: 0, height: '72%', borderTopLeftRadius: 18, borderTopRightRadius: 18, borderTopWidth: StyleSheet.hairlineWidth, padding: 22, paddingBottom: 30 },
+  // flex-end child of KeyboardAvoidingView (not absolute) so it lifts above the keyboard.
+  sheet: { height: '72%', borderTopLeftRadius: 18, borderTopRightRadius: 18, borderTopWidth: StyleSheet.hairlineWidth, padding: 22, paddingBottom: 30 },
   flex: { flex: 1 },
   title: { fontSize: 18, fontWeight: '700', marginBottom: 14 },
   center: { alignItems: 'center', justifyContent: 'center', paddingVertical: 24, gap: 14 },
