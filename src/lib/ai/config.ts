@@ -13,6 +13,10 @@ export interface AiConfig {
   enabled: boolean;
   /** Unix ms when the user consented to sending book text; null = not consented. */
   consentAt: number | null;
+  /** 续读回顾卡开关。 */
+  recapEnabled: boolean;
+  /** 隔多少天没读才弹回顾卡（0–90，0 = 只要有进度就弹，用于验证）。 */
+  recapGapDays: number;
 }
 
 export const DEFAULT_AI_CONFIG: AiConfig = {
@@ -21,7 +25,14 @@ export const DEFAULT_AI_CONFIG: AiConfig = {
   model: 'deepseek-chat',
   enabled: false,
   consentAt: null,
+  recapEnabled: true,
+  recapGapDays: 7,
 };
+
+function clampGap(value: unknown): number {
+  const n = typeof value === 'number' && Number.isFinite(value) ? value : DEFAULT_AI_CONFIG.recapGapDays;
+  return Math.min(90, Math.max(0, Math.round(n)));
+}
 
 function cleanBaseUrl(value: unknown): string {
   if (typeof value !== 'string') return DEFAULT_AI_CONFIG.baseUrl;
@@ -39,6 +50,8 @@ export function sanitizeAiConfig(patch: Partial<AiConfig> | null | undefined): A
     model,
     enabled: Boolean(p.enabled),
     consentAt: typeof p.consentAt === 'number' && Number.isFinite(p.consentAt) ? p.consentAt : null,
+    recapEnabled: p.recapEnabled === undefined ? true : Boolean(p.recapEnabled),
+    recapGapDays: clampGap(p.recapGapDays),
   };
 }
 

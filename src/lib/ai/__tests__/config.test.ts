@@ -48,3 +48,27 @@ describe('persistence', () => {
     expect(await loadAiConfig(corrupt)).toEqual(DEFAULT_AI_CONFIG);
   });
 });
+
+describe('sanitizeAiConfig recap fields', () => {
+  test('缺字段时 recapEnabled 默认 true（不被裸 Boolean 判假）', () => {
+    const c = sanitizeAiConfig({ baseUrl: 'https://api.deepseek.com' });
+    expect(c.recapEnabled).toBe(true);
+    expect(c.recapGapDays).toBe(7);
+  });
+  test('recapEnabled=false 被保留', () => {
+    expect(sanitizeAiConfig({ recapEnabled: false }).recapEnabled).toBe(false);
+  });
+  test('recapGapDays 非有限值回落 7', () => {
+    expect(sanitizeAiConfig({ recapGapDays: NaN }).recapGapDays).toBe(7);
+    expect(sanitizeAiConfig({ recapGapDays: undefined }).recapGapDays).toBe(7);
+  });
+  test('recapGapDays clamp 到 0–90', () => {
+    expect(sanitizeAiConfig({ recapGapDays: -5 }).recapGapDays).toBe(0);
+    expect(sanitizeAiConfig({ recapGapDays: 999 }).recapGapDays).toBe(90);
+    expect(sanitizeAiConfig({ recapGapDays: 0 }).recapGapDays).toBe(0);
+  });
+  test('DEFAULT_AI_CONFIG 带默认', () => {
+    expect(DEFAULT_AI_CONFIG.recapEnabled).toBe(true);
+    expect(DEFAULT_AI_CONFIG.recapGapDays).toBe(7);
+  });
+});

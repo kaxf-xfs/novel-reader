@@ -16,6 +16,8 @@ export function AiSettingsModal({ visible, onClose }: { visible: boolean; onClos
   const [apiKey, setApiKey] = useState(aiConfig.apiKey);
   const [model, setModel] = useState(aiConfig.model);
   const [enabled, setEnabled] = useState(aiConfig.enabled);
+  const [recapEnabled, setRecapEnabled] = useState(aiConfig.recapEnabled);
+  const [recapGap, setRecapGap] = useState(String(aiConfig.recapGapDays));
 
   // Resync from the persisted config only on the opening edge (closed -> open),
   // not on every render where `visible` stays true. `aiConfig` gets a fresh
@@ -30,12 +32,16 @@ export function AiSettingsModal({ visible, onClose }: { visible: boolean; onClos
       setApiKey(aiConfig.apiKey);
       setModel(aiConfig.model);
       setEnabled(aiConfig.enabled);
+      setRecapEnabled(aiConfig.recapEnabled);
+      setRecapGap(String(aiConfig.recapGapDays));
     }
     wasVisible.current = visible;
   }, [visible, aiConfig]);
 
   const save = () => {
-    update({ baseUrl, apiKey, model, enabled });
+    const parsed = parseInt(recapGap, 10);
+    const recapGapDays = Number.isNaN(parsed) ? 7 : Math.min(90, Math.max(0, parsed));
+    update({ baseUrl, apiKey, model, enabled, recapEnabled, recapGapDays });
     onClose();
   };
 
@@ -69,6 +75,14 @@ export function AiSettingsModal({ visible, onClose }: { visible: boolean; onClos
               <Text style={[styles.label, { color: theme.text, marginBottom: 0 }]}>启用 AI 伴读</Text>
               <Switch value={enabled} onValueChange={setEnabled} />
             </Pressable>
+
+            <Pressable testID="ai-recap-enable" onPress={() => setRecapEnabled((v) => !v)} style={styles.row}>
+              <Text style={[styles.label, { color: theme.text, marginBottom: 0 }]}>久别续读时弹前情回顾</Text>
+              <Switch value={recapEnabled} onValueChange={setRecapEnabled} />
+            </Pressable>
+            <Text style={[styles.label, { color: theme.subtle }]}>隔多少天没读才回顾</Text>
+            <TextInput testID="ai-recap-gap" style={input} value={recapGap} onChangeText={setRecapGap}
+              placeholder="7" placeholderTextColor={theme.subtle} keyboardType="number-pad" />
 
             <Text style={[styles.note, { color: theme.subtle }]}>
               启用后，正文与章节小结会发送到你配置的 AI 服务。API Key 仅保存在本机。
