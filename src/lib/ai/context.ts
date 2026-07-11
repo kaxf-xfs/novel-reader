@@ -7,7 +7,7 @@
 import type { SummaryRecord } from '../import/repository';
 import { ARC_SIZE } from './summarize';
 
-export const CONTEXT_BUDGET = 24_000;
+export const CONTEXT_BUDGET = 32_000;
 
 export interface SelectedContext {
   contextText: string;

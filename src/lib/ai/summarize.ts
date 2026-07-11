@@ -8,7 +8,7 @@ import type { BookRecord, BookRepository, ChapterRecord } from '../import/reposi
 import { readChapterText } from '../reader/readChapter';
 import { AiError, type ChatMessage } from './client';
 
-export const SUMMARY_PROMPT_VERSION = 'v1';
+export const SUMMARY_PROMPT_VERSION = 'v2';
 export const ARC_SIZE = 25;
 
 export type SummarizeFn = (messages: ChatMessage[], signal?: AbortSignal) => Promise<string>;
@@ -18,8 +18,13 @@ export function chapterSummaryMessages(title: string, body: string): ChatMessage
     {
       role: 'system',
       content:
-        '你是中文小说的摘要助手。请对给定章节输出"事实要点式"小结（人物、关键事件、关系变化），' +
-        '不加评论、不猜测后文，控制在 200 字内。',
+        '你是中文小说的摘要助手。请对给定章节输出"事实要点式"小结，要点式列出，逐条覆盖以下几类信息（若某类本章未涉及可跳过）：' +
+        '1) 出场人物的身份，以及身世/来历线索——出身、师承、家世、过往经历等任何透露人物背景的细节，哪怕只是一句带过；' +
+        '2) 本章发生的关键事件及其先后顺序；' +
+        '3) 人物之间关系的建立或变化，例如结识、结怨、结盟、师徒、亲缘等；' +
+        '4) 重要设定、物品、地点——功法、法宝、门派、地名、规则等首次出现或获得新信息时须记录；' +
+        '5) 看似次要但可能是伏笔的事实——反常的细节、未被解释的暗示、被一带而过但日后可能有用的信息，都要单独列出，不要因为"看似不重要"而省略。' +
+        '只陈述章节内已经写明、已经发生的事实，不加评论、不做价值判断、不猜测后文走向、不推断文中未写明的因果关系，全部内容控制在 450 字以内。',
     },
     { role: 'user', content: `章节标题：${title}\n\n正文：\n${body}` },
   ];
@@ -29,7 +34,7 @@ function arcSummaryMessages(summaries: string[]): ChatMessage[] {
   return [
     {
       role: 'system',
-      content: '你是中文小说的摘要助手。请把多章的要点小结合并成一段更高层的"弧小结"，保留人物与主线，控制在 300 字内。',
+      content: '你是中文小说的摘要助手。请把多章的要点小结合并成一段更高层的"弧小结"，保留人物与主线，控制在 400 字内。',
     },
     { role: 'user', content: summaries.map((s, i) => `[${i + 1}] ${s}`).join('\n') },
   ];

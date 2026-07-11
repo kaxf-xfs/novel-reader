@@ -1,7 +1,16 @@
 import { FakeFileGateway, seedReader } from '../../../test-utils/fakes';
 import { InMemoryBookRepository } from '../../import/repository';
 import { AiError, type ChatMessage } from '../client';
-import { ensureSummaries, SUMMARY_PROMPT_VERSION, ARC_SIZE } from '../summarize';
+import { ensureSummaries, chapterSummaryMessages, SUMMARY_PROMPT_VERSION, ARC_SIZE } from '../summarize';
+
+describe('chapterSummaryMessages prompt v2', () => {
+  it('章摘要 prompt v2 覆盖身世/伏笔且版本为 v2', () => {
+    expect(SUMMARY_PROMPT_VERSION).toBe('v2');
+    const sys = chapterSummaryMessages('标题', '正文')[0].content;
+    expect(sys).toContain('身世');
+    expect(sys).toContain('伏笔');
+  });
+});
 
 /** Wraps a fake chat fn to record which chapter idx (0-based, from the "第N章"
  * title embedded in the user message) each call summarized. */

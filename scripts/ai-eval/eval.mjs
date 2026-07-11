@@ -32,7 +32,7 @@ const OUT_DIR = join(HERE, 'out');
 const BASE_URL = process.env.AI_EVAL_BASE_URL ?? 'https://api.deepseek.com';
 const MODEL = process.env.AI_EVAL_MODEL ?? 'deepseek-chat';
 const KEY_FILE = process.env.DEEPSEEK_KEY_FILE ?? 'D:/Games/API_KEY.txt';
-const ARC_SIZE = 25, CONTEXT_BUDGET = 24000, CUR_BLOCK = 4, CONCURRENCY = 6;
+const ARC_SIZE = 25, CONTEXT_BUDGET = 32000, CUR_BLOCK = 4, CONCURRENCY = 6;
 
 // ── key（不回显）──
 const rawKey = readFileSync(KEY_FILE, 'utf8');
@@ -43,8 +43,8 @@ console.log(`model=${MODEL} @ ${BASE_URL} | key loaded (len ${API_KEY.length})`)
 
 // ── prompts（镜像自 summarize.ts / companion.ts）──
 const SPOILER_RULE = '下面【已读内容】是读者到目前为止读过的部分（更早章节的要点小结 + 当前章已读原文）。只能依据【已读内容】作答，绝不能透露或推测读者尚未读到的后续情节。若【已读内容】不足以回答，就直说「目前读到的部分还没有相关内容」。用简洁中文。';
-const chapMsg = (t, b) => [{ role: 'system', content: '你是中文小说的摘要助手。请对给定章节输出"事实要点式"小结（人物、关键事件、关系变化），不加评论、不猜测后文，控制在 200 字内。' }, { role: 'user', content: `章节标题：${t}\n\n正文：\n${b}` }];
-const arcMsg = (s) => [{ role: 'system', content: '你是中文小说的摘要助手。请把多章的要点小结合并成一段更高层的"弧小结"，保留人物与主线，控制在 300 字内。' }, { role: 'user', content: s.map((x, i) => `[${i + 1}] ${x}`).join('\n') }];
+const chapMsg = (t, b) => [{ role: 'system', content: '你是中文小说的摘要助手。请对给定章节输出"事实要点式"小结，要点式列出，逐条覆盖以下几类信息（若某类本章未涉及可跳过）：1) 出场人物的身份，以及身世/来历线索——出身、师承、家世、过往经历等任何透露人物背景的细节，哪怕只是一句带过；2) 本章发生的关键事件及其先后顺序；3) 人物之间关系的建立或变化，例如结识、结怨、结盟、师徒、亲缘等；4) 重要设定、物品、地点——功法、法宝、门派、地名、规则等首次出现或获得新信息时须记录；5) 看似次要但可能是伏笔的事实——反常的细节、未被解释的暗示、被一带而过但日后可能有用的信息，都要单独列出，不要因为"看似不重要"而省略。只陈述章节内已经写明、已经发生的事实，不加评论、不做价值判断、不猜测后文走向、不推断文中未写明的因果关系，全部内容控制在 450 字以内。' }, { role: 'user', content: `章节标题：${t}\n\n正文：\n${b}` }];
+const arcMsg = (s) => [{ role: 'system', content: '你是中文小说的摘要助手。请把多章的要点小结合并成一段更高层的"弧小结"，保留人物与主线，控制在 400 字内。' }, { role: 'user', content: s.map((x, i) => `[${i + 1}] ${x}`).join('\n') }];
 const askMsg = (c, q) => [{ role: 'system', content: `你是读者的「已读伴读」助手。${SPOILER_RULE}` }, { role: 'user', content: `【已读内容】\n${c}\n\n【问题】${q}` }];
 const recapMsg = (c) => [{ role: 'system', content: `你是「剧情回顾」助手。请根据【已读内容】写一段到当前进度为止的「前情提要」，${SPOILER_RULE} 控制在 200–400 字。` }, { role: 'user', content: `【已读内容】\n${c}` }];
 const charMsg = (c, n) => [{ role: 'system', content: `你是「人物档案」助手。请介绍读者指定的人物：他是谁、目前为止做过什么、与谁是什么关系。${SPOILER_RULE} 若还没出现，就说「目前读到的部分还没出现这个人物」。` }, { role: 'user', content: `【已读内容】\n${c}\n\n【人物】${n}` }];
