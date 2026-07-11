@@ -156,6 +156,14 @@ export function useAutoSummarize(deps: UseAutoSummarizeDeps, params: UseAutoSumm
     return () => {
       abortRef.current?.abort();
       abortRef.current = null;
+      // Also drop any queued rerun. Without this, an in-flight run's
+      // `.finally` (below) can read a stale `pendingCutoffRef` set before
+      // this cleanup ran and fire an unauthorized rerun *after* disable/
+      // unmount/book-close — bypassing the enabled/restoring gate entirely
+      // (and, since this feature is consent-gated, leaking book text to the
+      // AI backend after the user turned it off). This runs synchronously,
+      // ahead of the `.finally` microtask that reads it.
+      pendingCutoffRef.current = null;
       if (timerRef.current) {
         clearTimeout(timerRef.current);
         timerRef.current = null;

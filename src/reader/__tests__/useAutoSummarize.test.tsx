@@ -187,4 +187,64 @@ describe('useAutoSummarize', () => {
     expect(chat).toHaveBeenCalledTimes(10);
     expect(await repo.listSummaries('b1', 0, 100)).toEqual([]);
   });
+
+  it('clears a queued rerun when disabled mid-flight — no chat call escapes the disabled gate (privacy)', async () => {
+    const { repo, fs, book, chapters } = await setup(10);
+
+    let callCount = 0;
+    const chat = jest.fn((_messages: ChatMessage[], signal?: AbortSignal) => {
+      callCount += 1;
+      if (callCount === 1) {
+        // First run hangs in flight until aborted — mimics a real in-flight
+        // network call that respects the AbortSignal.
+        return new Promise<string>((_resolve, reject) => {
+          signal?.addEventListener('abort', () => reject(new AiError('cancelled', 'aborted')));
+        });
+      }
+      return Promise.resolve('S');
+    });
+
+    const flush = async () => {
+      for (let i = 0; i < 20; i++) await Promise.resolve();
+    };
+
+    const { rerender } = renderAutoSummarize({
+      chat, fs, repo, enabled: true, book, chapters, currentChapterIndex: 1, restoring: false, model: 'm',
+    });
+
+    // First run starts (cutoff=0) and hangs in flight.
+    await act(async () => {
+      jest.advanceTimersByTime(4000);
+      await flush();
+    });
+    expect(chat).toHaveBeenCalledTimes(1);
+
+    // Reader advances further while the run is still in flight — this queues
+    // pendingCutoffRef instead of starting a second run (single-flight).
+    // rerender() and advanceTimersByTime() must be in separate act() calls so
+    // the debounce effect's setTimeout is registered before the clock advances.
+    await act(async () => {
+      rerender({
+        chat, fs, repo, enabled: true, book, chapters, currentChapterIndex: 5, restoring: false, model: 'm',
+      });
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(4000);
+      await flush();
+    });
+    // Still just the one in-flight call — the second run was queued, not started.
+    expect(chat).toHaveBeenCalledTimes(1);
+
+    // User turns auto-summarize off while a run is in flight and a rerun is
+    // queued. This must abort the in-flight run AND drop the queued rerun —
+    // not just abort-then-restart past the disabled gate.
+    await act(async () => {
+      rerender({
+        chat, fs, repo, enabled: false, book, chapters, currentChapterIndex: 5, restoring: false, model: 'm',
+      });
+      await flush();
+    });
+
+    expect(chat).toHaveBeenCalledTimes(1);
+  });
 });
