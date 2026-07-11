@@ -15,8 +15,9 @@
 // ⚠️ 逻辑镜像：下面的 prompt 与 selectContext 是从生产源码「逐字复制」来的，用于离线复现。
 //    改了下列任一处，务必同步这里，否则质检结果不代表线上：
 //      · src/lib/ai/summarize.ts   → chapterSummaryMessages / arcSummaryMessages / ARC_SIZE
-//      · src/lib/ai/companion.ts    → SPOILER_RULE / askBookMessages / storySoFarMessages / characterMessages
+//      · src/lib/ai/companion.ts    → SPOILER_RULE / askBookMessages / storySoFarMessages / characterMessages / buildAskContext
 //      · src/lib/ai/context.ts      → selectContext / CONTEXT_BUDGET
+//      · src/lib/ai/retrieval.ts    → extractQueryTerms / scoreChapterSummaries / retrieveRelevantPassages
 //      · src/screens/ReaderScreen.tsx → 小结 maxTokens 700 / temperature 0.3
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -63,6 +64,100 @@ function selectContext({ arcSummaries, chapterSummaries, currentChapterText, cut
   const arcKept = [];
   for (let a = 0; a < arcs.length; a++) { const arc = arcs[a]; const f = arc.idx * arcSize, l = (arc.idx + 1) * arcSize - 1; if (f >= oldest) continue; const piece = `【第${f + 1}-${l + 1}章·概要】${arc.summary}`; if (used + piece.length + 1 > budget) break; arcKept.push(piece); usedArcs.push(arc.idx); used += piece.length + 1; }
   return { contextText: [parts[0], [...arcKept, ...recent].join('\n')].filter(Boolean).join('\n\n'), includedChapterIdx: inc, usedArcs, oldestChapter: oldest };
+}
+
+// ── 问书检索（镜像自 retrieval.ts + companion.ts 的 buildAskContext 编排）──
+const EXTRACT_SYS = '从问题中提取用于检索的关键词与人名/别名，只输出词，用逗号分隔，不要解释。';
+const PASSAGE_BUDGET = 8000;
+
+function parseTerms(raw) {
+  const seen = new Set(); const out = [];
+  for (const rawPiece of raw.split(/[，,、\n]+/)) {
+    const piece = rawPiece.trim().replace(/^\d+[.、)．）]+\s*/, '').trim();
+    if (!piece || /^\d+$/.test(piece)) continue;
+    if (!seen.has(piece)) { seen.add(piece); out.push(piece); }
+  }
+  return out.slice(0, 12);
+}
+function localTokens(question) {
+  const seen = new Set(); const out = [];
+  for (const t of question.split(/[\s，。？、,?.!]+/)) {
+    const w = t.trim();
+    if (w && !seen.has(w)) { seen.add(w); out.push(w); }
+  }
+  return out.slice(0, 12);
+}
+async function extractQueryTerms(question) {
+  const messages = [{ role: 'system', content: EXTRACT_SYS }, { role: 'user', content: question }];
+  try {
+    const { content } = await chat(messages, {});
+    const parsed = parseTerms(content ?? '');
+    return parsed.length > 0 ? parsed : localTokens(question);
+  } catch { return localTokens(question); }
+}
+function scoreChapterSummaries(summaries, terms) {
+  return summaries
+    .filter((s) => s.level === 0)
+    .map((s) => {
+      let score = 0;
+      for (const t of terms) {
+        if (!t) continue;
+        let from = 0;
+        for (;;) { const at = s.summary.indexOf(t, from); if (at === -1) break; score += 1; from = at + t.length; }
+      }
+      return { idx: s.idx, score };
+    })
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score);
+}
+function makeSearchSnippet(blockText, term, { before = 12, after = 40 } = {}) {
+  const idx = term ? blockText.toLowerCase().indexOf(term.toLowerCase()) : -1;
+  if (idx === -1) return blockText.slice(0, before + after + (term.length || 0));
+  const start = Math.max(0, idx - before);
+  const end = Math.min(blockText.length, idx + term.length + after);
+  let snip = blockText.slice(start, end);
+  if (start > 0) snip = '…' + snip;
+  if (end < blockText.length) snip = snip + '…';
+  return snip;
+}
+// chapters 已在内存里（parse() 的产物，body 不含标题），故直接切候选章原文，不做 I/O 网关。
+function retrieveRelevantPassages(chapters, { candidateIdx, terms, cutoff, maxBlocks = 12 }) {
+  const safe = candidateIdx.filter((i) => i <= cutoff); // 防剧透硬边界
+  const out = [];
+  for (const i of safe) {
+    if (out.length >= maxBlocks) break;
+    const chapter = chapters[i];
+    if (!chapter) continue;
+    const blocks = splitBlocks(`${chapter.title}\n${chapter.body}`);
+    for (let bi = 1; bi < blocks.length; bi++) { // 从 block1 起，跳过标题块 0
+      const block = blocks[bi];
+      const hit = terms.find((t) => t && block.includes(t));
+      if (!hit) continue;
+      out.push({ chapterIdx: i, blockIndex: bi, text: makeSearchSnippet(block, hit, { before: 80, after: 200 }) });
+      if (out.length >= maxBlocks) break;
+    }
+  }
+  return out;
+}
+/** 镜像 companion.ts 的 buildAskContext：检索候选章原文段 + selectContext 骨架。 */
+async function buildAskContextMirror({ chapters, chapterSummaries, arcSummaries, currentChapterText, cutoff, question }) {
+  const terms = await extractQueryTerms(question);
+  const ranked = scoreChapterSummaries(chapterSummaries, terms).slice(0, 10);
+  const candidateIdx = ranked.map((r) => r.idx).filter((i) => i <= cutoff);
+  const passages = retrieveRelevantPassages(chapters, { candidateIdx, terms, cutoff, maxBlocks: 12 });
+
+  let used = 0; const passLines = [];
+  for (const p of passages) {
+    if (p.chapterIdx > cutoff) continue;
+    const line = `【相关原文·第${p.chapterIdx + 1}章】${p.text}`;
+    if (used + line.length + 1 > PASSAGE_BUDGET) break;
+    passLines.push(line); used += line.length + 1;
+  }
+
+  const sel = selectContext({ arcSummaries, chapterSummaries, currentChapterText, cutoff, budgetChars: CONTEXT_BUDGET - used });
+  const contextText = [passLines.join('\n'), sel.contextText].filter(Boolean).join('\n\n');
+  const includedChapterIdx = Array.from(new Set([...passages.map((p) => p.chapterIdx), ...sel.includedChapterIdx])).filter((i) => i <= cutoff);
+  return { contextText, includedChapterIdx, terms, candidateIdx, passages };
 }
 
 // ── 基础设施 ──
@@ -122,6 +217,17 @@ async function runBook(file, enc, upto, out) {
   const firstName = (names.content.split(/[、,，\s]+/)[0] || '主角').slice(0, 6);
   await probe(`人物·${firstName}`, charMsg(contextText, firstName), { temperature: 0.4 });
   const chrSp = await probe('人物剧透探针·最终boss', charMsg(contextText, '最终反派boss'), { temperature: 0.4 });
+
+  // ── 问书检索分支（镜像 buildAskContext）：身世/来历类问题最能体现「查询感知检索」
+  // 相对纯 selectContext 平铺上下文的召回差异——打印命中候选章 + 抽段数 + 最终答案，
+  // 供人工比对是否比 v1（上面「问已读·准确性」用的平铺 contextText）更准更能溯源。
+  const askQuestion = `${firstName}的身世/来历是什么？他/她是什么出身、经历过什么？`;
+  const askCtx = await buildAskContextMirror({
+    chapters, chapterSummaries: recs, arcSummaries, currentChapterText: curText, cutoff, question: askQuestion,
+  });
+  rep(`\n【问书检索·扩词】${JSON.stringify(askCtx.terms)}`);
+  rep(`【问书检索·候选章】${JSON.stringify(askCtx.candidateIdx.map((i) => i + 1))} | 命中原文段 ${askCtx.passages.length}`);
+  await probe(`问书检索·${firstName}身世`, askMsg(askCtx.contextText, askQuestion), { temperature: 0.4 });
 
   const verdict = `  判定 | 早期召回 ${refuse(early) ? '⚠️答不出' : '答出✓'} | 直问剧透 ${refuse(sp1.content ?? sp1) ? '拒答✓' : '⚠️泄露'} | 推测剧透 ${refuse(sp2.content ?? sp2) ? '拒答✓' : '⚠️泄露'} | 人物剧透 ${refuse(chrSp) ? '拒答✓' : '⚠️泄露'} | 弧覆盖 ${usedArcs.length > 0 ? `✓(${usedArcs.length})` : (oldestChapter <= 0 ? 'N/A(浅)' : '⚠️0')}`;
   log(verdict);

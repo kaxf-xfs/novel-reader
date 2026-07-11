@@ -48,7 +48,13 @@ import { BookmarksSheet } from '../reader/BookmarksSheet';
 import { AiPanel, type AiRunParams } from '../reader/AiPanel';
 import { useReadingSession } from '../reader/useReadingSession';
 import { useAutoSummarize } from '../reader/useAutoSummarize';
-import { buildReadContext, askBookMessages, storySoFarMessages, characterMessages } from '../lib/ai/companion';
+import {
+  buildReadContext,
+  buildAskContext,
+  askBookMessages,
+  storySoFarMessages,
+  characterMessages,
+} from '../lib/ai/companion';
 import { isRecapDue, buildResumeRecap, generateRecentRecap } from '../lib/ai/recap';
 import { ResumeRecapCard } from '../reader/ResumeRecapCard';
 import { chatComplete } from '../lib/ai/client';
@@ -440,18 +446,33 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
         (
           await chatComplete({ config: aiConfig, messages, signal: sig, maxTokens: 700, temperature: 0.3 })
         ).content;
-      const { contextText } = await buildReadContext(
-        { chat, fs, repo },
-        {
-          book,
-          chapters,
-          currentChapterIndex,
-          currentBlockIndex: currentBlockIndexRef.current,
-          model: aiConfig.model,
-          signal,
-          onProgress,
-        },
-      );
+      const { contextText } =
+        mode === 'ask'
+          ? await buildAskContext(
+              { chat, fs, repo },
+              {
+                book,
+                chapters,
+                currentChapterIndex,
+                currentBlockIndex: currentBlockIndexRef.current,
+                model: aiConfig.model,
+                question: input,
+                signal,
+                onProgress,
+              },
+            )
+          : await buildReadContext(
+              { chat, fs, repo },
+              {
+                book,
+                chapters,
+                currentChapterIndex,
+                currentBlockIndex: currentBlockIndexRef.current,
+                model: aiConfig.model,
+                signal,
+                onProgress,
+              },
+            );
       const messages =
         mode === 'ask'
           ? askBookMessages(contextText, input)
