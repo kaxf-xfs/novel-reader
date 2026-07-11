@@ -252,7 +252,8 @@ describe('generateRecentRecap（有界回填）', () => {
   const chapters: ChapterRecord[] = Array.from({ length: 40 }, (_, i) => ({
     bookId: 'b1', index: i, title: `T${i}`, level: 0 as const, byteStart: i, byteEnd: i + 1,
   }));
-  const fs = { readAsBytes: async (_p: string, s: number, e: number) => new Uint8Array(e - s) } as any;
+  // readChapterText 用 fs.readRange(path, start, end) → bytes → utf8；首行为标题
+  const fs = { readRange: async (_p: string, s: number, _e: number) => Buffer.from(`T\n正文${s}`, 'utf8') } as any;
 
   test('只回填 recent 内缺失章、报进度、合成 → 不碰 ≥cutoff', async () => {
     const repo = new InMemoryBookRepository();
