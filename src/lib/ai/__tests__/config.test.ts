@@ -72,3 +72,10 @@ describe('sanitizeAiConfig recap fields', () => {
     expect(DEFAULT_AI_CONFIG.recapGapDays).toBe(7);
   });
 });
+
+describe('sanitizeAiConfig autoSummarize', () => {
+  test('autoSummarize 缺省 false，显式保留', () => {
+    expect(sanitizeAiConfig({}).autoSummarize).toBe(false);
+    expect(sanitizeAiConfig({ autoSummarize: true }).autoSummarize).toBe(true);
+  });
+});
