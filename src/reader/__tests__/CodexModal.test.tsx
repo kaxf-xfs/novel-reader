@@ -92,4 +92,18 @@ describe('CodexModal', () => {
     expect(onCancel).toHaveBeenCalled();
     expect(await findByTestId('codex-error')).toHaveStyle({ color: '#d9534f' });
   });
+
+  it('tapping a node in the graph tab switches to the characters tab with that character selected', async () => {
+    const codex = codexWith({
+      characters: [
+        { name: '甲', aliases: [], identity: [{ text: '主角', idx: 0 }], groups: [], firstChapterIdx: 0 },
+        { name: '乙', aliases: [], identity: [], groups: [], firstChapterIdx: 0 },
+      ],
+      relations: [{ from: '甲', to: '乙', kind: '同门', idx: 0 }],
+    });
+    const { findByTestId } = renderWithSettings(<CodexModal {...base} codex={codex} />);
+    fireEvent.press(await findByTestId('codex-tab-graph'));
+    fireEvent.press(await findByTestId('graph-node-甲'));
+    expect(await findByTestId('codex-character-detail')).toHaveTextContent('主角', { exact: false });
+  });
 });

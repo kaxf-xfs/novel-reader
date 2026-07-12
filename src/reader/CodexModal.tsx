@@ -7,6 +7,7 @@ import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View
 import type { Character, Codex } from '../lib/ai/codex';
 import { resolveTheme } from '../lib/settings/styles';
 import { useSettings } from '../settings/SettingsContext';
+import { RelationshipGraph } from './RelationshipGraph';
 
 type CodexTab = 'characters' | 'terms' | 'graph';
 
@@ -142,7 +143,23 @@ export function CodexModal(props: CodexModalProps) {
               ))}
             </View>
           )}
-          {tab === 'graph' && <View testID="codex-tab-graph-body" />}
+          {tab === 'graph' && (
+            <View testID="codex-tab-graph-body">
+              <RelationshipGraph
+                characters={codex.characters}
+                relations={codex.relations}
+                width={320}
+                height={420}
+                onSelectCharacter={(name) => {
+                  const found = codex.characters.find((c) => c.name === name);
+                  if (found) {
+                    setSelectedCharacter(found);
+                    setTab('characters');
+                  }
+                }}
+              />
+            </View>
+          )}
         </ScrollView>
       </View>
     );
