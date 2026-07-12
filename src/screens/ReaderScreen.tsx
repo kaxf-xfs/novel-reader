@@ -57,8 +57,11 @@ import {
 } from '../lib/ai/companion';
 import { isRecapDue, buildResumeRecap, generateRecentRecap } from '../lib/ai/recap';
 import { ResumeRecapCard } from '../reader/ResumeRecapCard';
-import { chatComplete } from '../lib/ai/client';
+import { chatComplete, AiError, type ChatMessage, type ChatResult } from '../lib/ai/client';
 import type { SummarizeFn } from '../lib/ai/summarize';
+import { CodexModal } from '../reader/CodexModal';
+import { ensureCodex } from '../lib/ai/ensureCodex';
+import { codexForCutoff, EMPTY_CODEX, type Codex } from '../lib/ai/codex';
 
 interface ReaderScreenProps {
   repo: BookRepository;
@@ -118,6 +121,14 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
   const [showBookmarks, setShowBookmarks] = useState(false);
   const [showAi, setShowAi] = useState(false);
   const [showAiSettings, setShowAiSettings] = useState(false);
+  const [showCodex, setShowCodex] = useState(false);
+  const [codex, setCodex] = useState<Codex>(EMPTY_CODEX);
+  const [codexComplete, setCodexComplete] = useState(false);
+  const [codexVersionMismatch, setCodexVersionMismatch] = useState(false);
+  const [codexBusy, setCodexBusy] = useState(false);
+  const [codexProgress, setCodexProgress] = useState<{ done: number; total: number } | null>(null);
+  const [codexError, setCodexError] = useState<string | null>(null);
+  const codexAbortRef = useRef<AbortController | null>(null);
   const [showRecap, setShowRecap] = useState(false);
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
   const [highlightTerm, setHighlightTerm] = useState<string | null>(null);
@@ -495,6 +506,14 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
       ).content,
     [aiConfig],
   );
+
+  // 抽取要 finishReason 做截断二分判断，所以不能复用只返回 content 字符串的
+  // SummarizeFn；直接透传 chatComplete 的完整 ChatResult。
+  const codexChat = useCallback(
+    async (messages: ChatMessage[], sig?: AbortSignal): Promise<ChatResult> =>
+      chatComplete({ config: aiConfig, messages, signal: sig, maxTokens: 1600, temperature: 0.2, responseFormat: 'json_object' }),
+    [aiConfig],
+  );
   useAutoSummarize(
     { chat: aiChat, fs, repo },
     {
@@ -539,6 +558,55 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
     },
     [cachedChat, book, chapters, fs, repo, currentChapterIndex, aiConfig.model],
   );
+
+  const runEnsureCodex = useCallback(
+    async (forceRebuild: boolean) => {
+      if (!book || !chapters) return;
+      const cutoff = currentChapterIndex - 1;
+      if (cutoff < 0) return;
+      setCodexBusy(true);
+      setCodexError(null);
+      setCodexProgress(null);
+      const ctrl = new AbortController();
+      codexAbortRef.current = ctrl;
+      try {
+        const res = await ensureCodex(
+          { chat: codexChat, summarizeChat: aiChat, fs, repo },
+          {
+            book,
+            chapters,
+            cutoff,
+            model: aiConfig.model,
+            autoOn: aiConfig.autoSummarize,
+            forceRebuild,
+            signal: ctrl.signal,
+            onProgress: (done, total) => setCodexProgress({ done, total }),
+          },
+        );
+        if (ctrl.signal.aborted) return;
+        setCodex(res.codex);
+        setCodexComplete(res.complete);
+        setCodexVersionMismatch(res.versionMismatch);
+      } catch (e) {
+        if (ctrl.signal.aborted) return;
+        setCodexError(e instanceof AiError ? errorTextFor(e) : 'AI 请求失败，请重试。');
+      } finally {
+        setCodexBusy(false);
+        setCodexProgress(null);
+        codexAbortRef.current = null;
+      }
+    },
+    [book, chapters, currentChapterIndex, codexChat, aiChat, fs, repo, aiConfig.model, aiConfig.autoSummarize],
+  );
+
+  // 首次打开图鉴时自动加载一次（等价于按一次「补全到当前进度」）。
+  useEffect(() => {
+    if (showCodex) runEnsureCodex(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showCodex]);
+
+  const cutoff = currentChapterIndex - 1;
+  const displayCodex = useMemo(() => codexForCutoff(codex, cutoff), [codex, cutoff]);
 
   // 打开书签列表时刷新（先展示 sheet，再异步填充列表，避免列表加载延迟阻塞开关反馈）
   const openBookmarks = useCallback(async () => {
@@ -786,6 +854,7 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
           />
           <BarButton label="排版" color={rs.theme.accent} onPress={() => setShowSettings(true)} />
           <BarButton label="AI" color={rs.theme.accent} onPress={() => setShowAi(true)} />
+          <BarButton label="图鉴" color={rs.theme.accent} onPress={() => setShowCodex(true)} />
         </View>
       )}
 
@@ -839,8 +908,38 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
         run={runAi}
       />
       <AiSettingsModal visible={showAiSettings} onClose={() => setShowAiSettings(false)} />
+      <CodexModal
+        visible={showCodex}
+        onClose={() => setShowCodex(false)}
+        configured={aiConfig.enabled && aiConfig.apiKey.length > 0}
+        consented={aiConfig.consentAt !== null}
+        onOpenSettings={() => setShowAiSettings(true)}
+        onConsent={() => updateAiConfig({ consentAt: Date.now() })}
+        codex={displayCodex}
+        complete={codexComplete}
+        versionMismatch={codexVersionMismatch}
+        currentChapterNumber={currentChapterIndex + 1}
+        busy={codexBusy}
+        progress={codexProgress}
+        error={codexError}
+        onComplete={() => runEnsureCodex(false)}
+        onRebuild={() => runEnsureCodex(true)}
+        onCancel={() => codexAbortRef.current?.abort()}
+      />
     </View>
   );
+}
+
+function errorTextFor(e: AiError): string {
+  switch (e.kind) {
+    case 'no-key': return '还没配置 API Key，请先到 AI 设置填写。';
+    case 'cancelled': return '已取消。';
+    case 'timeout': return '请求超时，请重试。';
+    case 'insufficient-balance': return 'API 余额不足。';
+    case 'rate-limited': return '请求过于频繁，请稍后再试。';
+    case 'network': return '网络错误，请检查连接。';
+    default: return 'AI 请求失败，请重试。';
+  }
 }
 
 interface BarButtonProps {

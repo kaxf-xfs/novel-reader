@@ -389,4 +389,27 @@ describe('ReaderScreen', () => {
     tapSurface(getByTestId('reader-surface')); // reveal bottom bar
     expect(await findByText('AI')).toBeTruthy();
   });
+
+  it('shows the 图鉴 bottom-bar button after tapping to reveal chrome', async () => {
+    const { repo, fs } = setup();
+    await seedReader(repo, fs, { bookId: 'bcodex', chapters: CHAPTERS, progressChapterIndex: 0 });
+
+    const { findByText, getByTestId } = renderReader(repo, fs, 'bcodex');
+
+    await findByText(/内容一。/);
+    tapSurface(getByTestId('reader-surface')); // reveal bottom bar
+    expect(await findByText('图鉴')).toBeTruthy();
+  });
+
+  it('opens CodexModal with the same config/consent gates as AiPanel', async () => {
+    const { repo, fs } = setup();
+    await seedReader(repo, fs, { bookId: 'bcodex2', chapters: CHAPTERS, progressChapterIndex: 0 });
+
+    const { findByText, findByTestId, getByTestId } = renderReader(repo, fs, 'bcodex2');
+
+    await findByText(/内容一。/);
+    tapSurface(getByTestId('reader-surface')); // reveal bottom bar
+    fireEvent.press(await findByText('图鉴'));
+    expect(await findByTestId('codex-need-config')).toBeTruthy(); // 默认未配置 AI
+  });
 });
