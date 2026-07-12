@@ -1,5 +1,6 @@
 import { act, fireEvent, waitFor, within } from '@testing-library/react-native';
 
+import { sanitizeAiConfig, saveAiConfig } from '../../lib/ai/config';
 import { InMemoryBookRepository } from '../../lib/import/repository';
 import { InMemorySettingsGateway } from '../../lib/settings/store';
 import { resolveTheme } from '../../lib/settings/styles';
@@ -411,5 +412,52 @@ describe('ReaderScreen', () => {
     tapSurface(getByTestId('reader-surface')); // reveal bottom bar
     fireEvent.press(await findByText('图鉴'));
     expect(await findByTestId('codex-need-config')).toBeTruthy(); // 默认未配置 AI
+  });
+
+  it('aborts an in-flight codex extraction when the modal is closed', async () => {
+    const { repo, fs } = setup();
+    // progressChapterIndex:1 → cutoff=0，才有章节可供 ensureCodex 处理（cutoff<0 会直接短路，不会调用 chat）。
+    await seedReader(repo, fs, { bookId: 'bcodexabort', chapters: CHAPTERS, progressChapterIndex: 1 });
+
+    const aiGateway = new InMemorySettingsGateway();
+    await saveAiConfig(
+      aiGateway,
+      sanitizeAiConfig({
+        enabled: true,
+        apiKey: 'sk-test',
+        model: 'deepseek-chat',
+        consentAt: Date.now(),
+        autoSummarize: true, // autoOn=true → ensureCodex 会先走 ensureSummaries，真正打到 chatComplete/fetch
+      }),
+    );
+
+    let capturedSignal: AbortSignal | undefined;
+    const fetchMock = jest.fn((_url: string, init: RequestInit) => {
+      capturedSignal = init.signal as AbortSignal;
+      return new Promise(() => {}); // 永不 resolve —— 模拟一直在途的请求
+    });
+    const originalFetch = global.fetch;
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    try {
+      const { findByText, findByTestId, getByTestId } = renderWithSettings(
+        <AiConfigProvider gateway={aiGateway}>
+          <ReaderScreen repo={repo} fs={fs} bookId="bcodexabort" onBack={() => {}} />
+        </AiConfigProvider>,
+      );
+
+      await findByText(/内容二。/); // progressChapterIndex:1 → 打开即在第二章
+      tapSurface(getByTestId('reader-surface'));
+      fireEvent.press(await findByText('图鉴'));
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      expect(capturedSignal?.aborted).toBe(false);
+
+      fireEvent.press(await findByTestId('codex-close'));
+
+      await waitFor(() => expect(capturedSignal?.aborted).toBe(true));
+    } finally {
+      global.fetch = originalFetch;
+    }
   });
 });

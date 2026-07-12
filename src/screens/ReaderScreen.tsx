@@ -340,6 +340,9 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
       mountedRef.current = false;
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
       if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
+      // Abort any in-flight codex extraction so it doesn't keep sending book
+      // text to the AI backend after the reader itself is gone.
+      codexAbortRef.current?.abort();
     };
   }, []);
 
@@ -603,6 +606,13 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
   useEffect(() => {
     if (showCodex) runEnsureCodex(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showCodex]);
+
+  // 关闭图鉴（按钮/背景/编程式）时中止任何进行中的提取，避免用户已离开
+  // 弹窗后仍在后台悄悄调用 AI、占用该书的提取锁。镜像 AiPanel 的
+  // `[!visible] → abort` 处理方式。
+  useEffect(() => {
+    if (!showCodex) codexAbortRef.current?.abort();
   }, [showCodex]);
 
   const cutoff = currentChapterIndex - 1;
