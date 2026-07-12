@@ -162,4 +162,34 @@ describe('ensureSummaries', () => {
     expect(chat).toHaveBeenCalledTimes(1); // chapters all cached → only the arc re-merge
     expect((await repo.getSummary('b1', 1, 0))?.summary).toBe('REMERGED');
   });
+
+  // Real-device freeze fix: the missing-chapter scan used to issue one
+  // repo.getSummary() native-bridge round-trip PER CHAPTER (sequential,
+  // unbounded by count) before doing any real work. It must now do a single
+  // bulk repo.listSummaries() call instead. This test seeds a large,
+  // fully-cached book (chapters + complete arcs, all matching model/version)
+  // and asserts repo.getSummary() is called only a small, arc-count-bounded
+  // number of times (the pre-existing arc-merge existence check, unrelated to
+  // this fix) — never once per chapter.
+  it('scans missing chapters via one bulk listSummaries() call, not one getSummary() per chapter', async () => {
+    const CHAPTER_COUNT = 200;
+    const { repo, fs, book, chapters } = await setup(CHAPTER_COUNT);
+    for (let i = 0; i < CHAPTER_COUNT; i++) {
+      await repo.putSummary({ bookId: 'b1', level: 0, idx: i, model: 'm', promptVersion: SUMMARY_PROMPT_VERSION, summary: `s${i}`, createdAt: 1 });
+    }
+    const arcCount = Math.floor(CHAPTER_COUNT / ARC_SIZE);
+    for (let arc = 0; arc < arcCount; arc++) {
+      await repo.putSummary({ bookId: 'b1', level: 1, idx: arc, model: 'm', promptVersion: SUMMARY_PROMPT_VERSION, summary: `arc${arc}`, createdAt: 1 });
+    }
+    const listSummariesSpy = jest.spyOn(repo, 'listSummaries');
+    const getSummarySpy = jest.spyOn(repo, 'getSummary');
+    const chat = jest.fn(async () => 'S');
+    await ensureSummaries({ chat, fs, repo }, { book, chapters, cutoff: CHAPTER_COUNT - 1, model: 'm' });
+    expect(chat).not.toHaveBeenCalled(); // everything already cached with matching model/version — no work to do
+    expect(listSummariesSpy).toHaveBeenCalledTimes(1); // the new bulk scan
+    // getSummary() is still called once per arc by the (unchanged) arc-merge
+    // existence check — bounded by arc count, NOT by chapter count.
+    expect(getSummarySpy).toHaveBeenCalledTimes(arcCount);
+    expect(getSummarySpy.mock.calls.length).toBeLessThan(CHAPTER_COUNT);
+  });
 });

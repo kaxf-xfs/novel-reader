@@ -4,7 +4,7 @@
  */
 
 import type { FileGateway } from '../import/importBook';
-import type { BookRecord, BookRepository, ChapterRecord } from '../import/repository';
+import type { BookRecord, BookRepository, ChapterRecord, SummaryRecord } from '../import/repository';
 import { readChapterText } from '../reader/readChapter';
 import { AiError, type ChatMessage } from './client';
 
@@ -87,9 +87,18 @@ export async function ensureSummaries(deps: Deps, params: EnsureSummariesParams)
   };
 
   // 1) which chapters in [fromIdx..cutoff] need a fresh summary?
+  // Bulk-fetch once (one native-bridge round-trip) instead of one getSummary()
+  // call per chapter — with hundreds/thousands of chapters, the old sequential
+  // per-chapter await loop starved the JS thread and froze the app on-device.
+  const scanUpto = Math.min(cutoff, chapters.length - 1);
+  const cachedByIdx = new Map<number, SummaryRecord>();
+  if (scanUpto >= fromIdx) {
+    const cachedList = await repo.listSummaries(book.id, 0, scanUpto);
+    for (const s of cachedList) cachedByIdx.set(s.idx, s);
+  }
   const missing: number[] = [];
   for (let i = fromIdx; i <= cutoff && i < chapters.length; i++) {
-    const cached = await repo.getSummary(book.id, 0, i);
+    const cached = cachedByIdx.get(i) ?? null;
     const isMissing = !cached || (upgradeStale && (cached.model !== model || cached.promptVersion !== SUMMARY_PROMPT_VERSION));
     if (isMissing) missing.push(i);
   }

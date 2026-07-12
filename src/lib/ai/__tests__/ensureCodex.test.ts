@@ -166,6 +166,30 @@ describe('ensureCodex', () => {
     expect(stored?.coveredUptoIdx).toBeLessThan(119); // 但确实没跑完
   });
 
+  // Real-device freeze fix: the checkpoint loop used to re-fetch EACH chapter's
+  // summary individually via repo.getSummary() (up to CHECKPOINT_EVERY_BLOCKS *
+  // BLOCK_SIZE = 75 separate native-bridge round-trips per checkpoint), even
+  // though a single bulk repo.listSummaries() call already had every needed
+  // summary in memory. It must now build the codex blocks from that in-memory
+  // map instead, issuing zero repo.getSummary() calls.
+  it('builds checkpoint blocks from one bulk-fetched summary map, never calling getSummary() per chapter', async () => {
+    const CHAPTER_COUNT = 200; // 200 / 15 per block = 14 blocks / 5 per checkpoint → multiple checkpoints
+    const { repo, fs, book, chapters } = await setup(CHAPTER_COUNT);
+    for (let i = 0; i < CHAPTER_COUNT; i++) {
+      await repo.putSummary({ bookId: 'b1', level: 0, idx: i, model: 'm', promptVersion: 'v2', summary: `s${i}`, createdAt: 1 });
+    }
+    const getSummarySpy = jest.spyOn(repo, 'getSummary');
+    const summarizeChat = jest.fn(async () => 'S');
+    const chat = fakeCodexChat();
+    const res = await ensureCodex(
+      { chat, summarizeChat, fs, repo },
+      { book, chapters, cutoff: CHAPTER_COUNT - 1, model: 'm', autoOn: false },
+    );
+    expect(res.coveredUptoIdx).toBe(CHAPTER_COUNT - 1);
+    expect(res.complete).toBe(true);
+    expect(getSummarySpy).not.toHaveBeenCalled(); // was up to 200 calls before the fix, now 0
+  });
+
   it('per-book lock serializes concurrent calls for the same book (no duplicated character from a lost update)', async () => {
     const { repo, fs, book, chapters } = await setup(10);
     const summarizeChat = jest.fn(async () => 'S');

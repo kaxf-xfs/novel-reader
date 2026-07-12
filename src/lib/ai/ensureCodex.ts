@@ -103,6 +103,14 @@ export async function ensureCodex(deps: EnsureCodexDeps, params: EnsureCodexPara
       });
     };
 
+    // Bulk-fetch summary text ONCE into an idx→text map, instead of re-fetching
+    // each chapter individually inside the checkpoint loop below (that was up
+    // to CHECKPOINT_EVERY_BLOCKS*BLOCK_SIZE separate native-bridge round-trips
+    // per checkpoint iteration — the real-device freeze). Both autoOn branches
+    // share this map: the else-branch's existing listSummaries() call already
+    // covers the full [0..cutoff] range needed, so it doubles as the source of
+    // both the coverage-gap scan and the checkpoint loop's summary lookups.
+    const summaryTextByIdx = new Map<number, string>();
     let availableIdx: number[];
     if (autoOn) {
       await ensureSummaries(
@@ -113,10 +121,10 @@ export async function ensureCodex(deps: EnsureCodexDeps, params: EnsureCodexPara
       for (let i = coveredUptoIdx + 1; i <= cutoff; i++) availableIdx.push(i);
     } else {
       const cached = await deps.repo.listSummaries(book.id, 0, cutoff);
-      const cachedIdxSet = new Set(cached.map((s) => s.idx));
+      for (const s of cached) summaryTextByIdx.set(s.idx, s.summary);
       availableIdx = [];
       for (let i = coveredUptoIdx + 1; i <= cutoff; i++) {
-        if (!cachedIdxSet.has(i)) break; // 遇到第一个缺口就停：coveredUptoIdx 绝不跳过未覆盖的章节
+        if (!summaryTextByIdx.has(i)) break; // 遇到第一个缺口就停：coveredUptoIdx 绝不跳过未覆盖的章节
         availableIdx.push(i);
       }
     }
@@ -126,22 +134,23 @@ export async function ensureCodex(deps: EnsureCodexDeps, params: EnsureCodexPara
       return { codex, coveredUptoIdx, complete, versionMismatch };
     }
 
+    // autoOn's ensureSummaries() call above guarantees availableIdx's summaries
+    // now exist in the DB but summaryTextByIdx wasn't populated yet for that
+    // branch (the else-branch already populated it above) — fetch once now.
+    if (autoOn) {
+      const fetched = await deps.repo.listSummaries(book.id, 0, cutoff);
+      for (const s of fetched) summaryTextByIdx.set(s.idx, s.summary);
+    }
+
     const blocks = chunk(availableIdx, BLOCK_SIZE);
     let doneBlocks = 0;
 
     for (let bi = 0; bi < blocks.length; bi += CHECKPOINT_EVERY_BLOCKS) {
       throwIfCancelled();
       const batch = blocks.slice(bi, bi + CHECKPOINT_EVERY_BLOCKS);
-      const codexBlocks: CodexBlock[] = await Promise.all(
-        batch.map(async (idxs) => ({
-          items: await Promise.all(
-            idxs.map(async (idx) => {
-              const s = await deps.repo.getSummary(book.id, 0, idx);
-              return { idx, summary: s?.summary ?? '' };
-            }),
-          ),
-        })),
-      );
+      const codexBlocks: CodexBlock[] = batch.map((idxs) => ({
+        items: idxs.map((idx) => ({ idx, summary: summaryTextByIdx.get(idx) ?? '' })),
+      }));
 
       const results = await extractCodex(
         { chat: deps.chat },
