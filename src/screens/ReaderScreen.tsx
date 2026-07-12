@@ -602,11 +602,17 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
     [book, chapters, currentChapterIndex, codexChat, aiChat, fs, repo, aiConfig.model, aiConfig.autoSummarize],
   );
 
-  // 首次打开图鉴时自动加载一次（等价于按一次「补全到当前进度」）。
+  // 首次打开图鉴时自动加载一次（等价于按一次「补全到当前进度」）。必须同时满足
+  // configured（已启用+已填 key）与 consented（已同意）——与 CodexModal 的
+  // 同名 props 用的是完全相同的两个布尔表达式。否则用户在弹窗展示同意页之前，
+  // 这个副作用就已经悄悄发起了真实 AI 请求。consentAt 也在依赖数组中，这样
+  // 用户在弹窗停留期间点「同意并继续」时会立即补触发一次加载，而不必关闭重开。
   useEffect(() => {
-    if (showCodex) runEnsureCodex(false);
+    if (showCodex && aiConfig.enabled && aiConfig.apiKey.length > 0 && aiConfig.consentAt !== null) {
+      runEnsureCodex(false);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showCodex]);
+  }, [showCodex, aiConfig.enabled, aiConfig.apiKey, aiConfig.consentAt]);
 
   // 关闭图鉴（按钮/背景/编程式）时中止任何进行中的提取，避免用户已离开
   // 弹窗后仍在后台悄悄调用 AI、占用该书的提取锁。镜像 AiPanel 的

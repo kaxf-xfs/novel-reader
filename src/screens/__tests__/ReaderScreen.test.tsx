@@ -460,4 +460,48 @@ describe('ReaderScreen', () => {
       global.fetch = originalFetch;
     }
   });
+
+  it('does not auto-load the codex before consent, even with autoSummarize on', async () => {
+    const { repo, fs } = setup();
+    // progressChapterIndex:1 → cutoff=0，才有章节可供 ensureCodex 处理（cutoff<0 会直接短路）。
+    await seedReader(repo, fs, { bookId: 'bcodexconsent', chapters: CHAPTERS, progressChapterIndex: 1 });
+
+    const aiGateway = new InMemorySettingsGateway();
+    await saveAiConfig(
+      aiGateway,
+      sanitizeAiConfig({
+        enabled: true,
+        apiKey: 'sk-test',
+        model: 'deepseek-chat',
+        consentAt: null, // 尚未同意
+        autoSummarize: true, // autoOn=true —— 若无 consent 门控，effect 会在同意页展示前就已发起真实请求
+      }),
+    );
+
+    const fetchMock = jest.fn(() => new Promise(() => {})); // 永不 resolve
+    const originalFetch = global.fetch;
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    try {
+      const { findByText, findByTestId, getByTestId } = renderWithSettings(
+        <AiConfigProvider gateway={aiGateway}>
+          <ReaderScreen repo={repo} fs={fs} bookId="bcodexconsent" onBack={() => {}} />
+        </AiConfigProvider>,
+      );
+
+      await findByText(/内容二。/); // progressChapterIndex:1 → 打开即在第二章
+      tapSurface(getByTestId('reader-surface'));
+      fireEvent.press(await findByText('图鉴'));
+
+      // 弹窗应展示同意页——而不是直接开始加载。
+      expect(await findByTestId('codex-consent-gate')).toBeTruthy();
+      expect(fetchMock).not.toHaveBeenCalled();
+
+      // 点击「同意并继续」后，加载应自动触发（无需关闭重开弹窗）。
+      fireEvent.press(await findByTestId('codex-consent'));
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
 });
