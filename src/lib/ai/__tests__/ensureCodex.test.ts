@@ -37,7 +37,7 @@ describe('ensureCodex', () => {
     expect(stored?.coveredUptoIdx).toBe(19);
   });
 
-  it('autoOn=false: uses only cached summaries (gaps allowed), complete=false when cutoff has a missing summary', async () => {
+  it('autoOn=false: stops at the first summary gap (contiguous frontier only), complete=false when cutoff has a missing summary', async () => {
     const { repo, fs, book, chapters } = await setup(10);
     await repo.putSummary({ bookId: 'b1', level: 0, idx: 0, model: 'm', promptVersion: 'v2', summary: 's0', createdAt: 1 });
     await repo.putSummary({ bookId: 'b1', level: 0, idx: 2, model: 'm', promptVersion: 'v2', summary: 's2', createdAt: 1 });
@@ -49,8 +49,47 @@ describe('ensureCodex', () => {
       { book, chapters, cutoff: 9, model: 'm', autoOn: false },
     );
     expect(res.complete).toBe(false);
-    expect(res.coveredUptoIdx).toBe(2); // 只纳入了已缓存的 0、2
+    // idx 1 缺失，扫描在 coveredUptoIdx+1=0 之后的 1 处遇到缺口即停，idx 2 不会被跳跃纳入，
+    // 避免 coveredUptoIdx 越过缺口造成 idx 1 数据永久被跳过（且日后 complete 误报 true）。
+    expect(res.coveredUptoIdx).toBe(0);
     expect(summarizeChat).not.toHaveBeenCalled(); // autoOn=false 不做章摘要保底
+  });
+
+  it('regression: a later-filled gap is picked up (no permanent stranding) once the call is repeated', async () => {
+    const { repo, fs, book, chapters } = await setup(10);
+    await repo.putSummary({ bookId: 'b1', level: 0, idx: 0, model: 'm', promptVersion: 'v2', summary: 's0', createdAt: 1 });
+    await repo.putSummary({ bookId: 'b1', level: 0, idx: 2, model: 'm', promptVersion: 'v2', summary: 's2', createdAt: 1 });
+    // idx 1 缺失（cutoff=9），其余 3..9 也缺失
+    const summarizeChat = jest.fn(async () => 'S');
+    let callCount = 0;
+    const chat = jest.fn(async (_messages: ChatMessage[], _signal?: AbortSignal): Promise<ChatResult> => {
+      callCount += 1;
+      return {
+        content: JSON.stringify({ characters: [{ name: `角色${callCount}`, identity: ['少年'] }], terms: [], relations: [] }),
+        finishReason: 'stop',
+      };
+    });
+
+    const first = await ensureCodex(
+      { chat, summarizeChat, fs, repo },
+      { book, chapters, cutoff: 9, model: 'm', autoOn: false },
+    );
+    expect(first.coveredUptoIdx).toBe(0); // 卡在缺口前，未被 bug 跳过纳入 idx 2
+    const firstCallCount = callCount;
+
+    // 缺口被补上：idx 1 的摘要现在也缓存好了。
+    await repo.putSummary({ bookId: 'b1', level: 0, idx: 1, model: 'm', promptVersion: 'v2', summary: 's1', createdAt: 1 });
+
+    const second = await ensureCodex(
+      { chat, summarizeChat, fs, repo },
+      { book, chapters, cutoff: 9, model: 'm', autoOn: false },
+    );
+    // 缺口补上后，第二次调用应从 coveredUptoIdx+1=1 起连续纳入 1、2，越过原先卡住的位置。
+    expect(second.coveredUptoIdx).toBeGreaterThanOrEqual(2);
+    expect(callCount).toBeGreaterThan(firstCallCount); // 确实发起了新的抽取调用，而不是被误判为已覆盖
+    // 合并后的图鉴应包含跨越缺口后新抽取出的角色，证明缺口章节的数据被真正抽取纳入，而非被静默跳过。
+    const names = second.codex.characters.map((c) => c.name);
+    expect(names.length).toBeGreaterThan(first.codex.characters.length);
   });
 
   it('version tolerance: a model/promptVersion mismatch does not wipe the existing codex, only extends it', async () => {

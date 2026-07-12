@@ -113,7 +113,12 @@ export async function ensureCodex(deps: EnsureCodexDeps, params: EnsureCodexPara
       for (let i = coveredUptoIdx + 1; i <= cutoff; i++) availableIdx.push(i);
     } else {
       const cached = await deps.repo.listSummaries(book.id, 0, cutoff);
-      availableIdx = cached.map((s) => s.idx).filter((i) => i > coveredUptoIdx);
+      const cachedIdxSet = new Set(cached.map((s) => s.idx));
+      availableIdx = [];
+      for (let i = coveredUptoIdx + 1; i <= cutoff; i++) {
+        if (!cachedIdxSet.has(i)) break; // 遇到第一个缺口就停：coveredUptoIdx 绝不跳过未覆盖的章节
+        availableIdx.push(i);
+      }
     }
 
     if (availableIdx.length === 0) {
