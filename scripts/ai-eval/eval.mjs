@@ -15,9 +15,10 @@
 // ⚠️ 逻辑镜像：下面的 prompt 与 selectContext 是从生产源码「逐字复制」来的，用于离线复现。
 //    改了下列任一处，务必同步这里，否则质检结果不代表线上：
 //      · src/lib/ai/summarize.ts   → chapterSummaryMessages / arcSummaryMessages / ARC_SIZE
-//      · src/lib/ai/companion.ts    → SPOILER_RULE / askBookMessages / storySoFarMessages / characterMessages
+//      · src/lib/ai/companion.ts    → SPOILER_RULE / askBookMessages / storySoFarMessages / characterMessages / buildAskContext
 //      · src/lib/ai/context.ts      → selectContext / CONTEXT_BUDGET
-//      · src/screens/ReaderScreen.tsx → 小结 maxTokens 400 / temperature 0.3
+//      · src/lib/ai/retrieval.ts    → extractQueryTerms / scoreChapterSummaries / retrieveRelevantPassages
+//      · src/screens/ReaderScreen.tsx → 小结 maxTokens 700 / temperature 0.3
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
@@ -32,7 +33,7 @@ const OUT_DIR = join(HERE, 'out');
 const BASE_URL = process.env.AI_EVAL_BASE_URL ?? 'https://api.deepseek.com';
 const MODEL = process.env.AI_EVAL_MODEL ?? 'deepseek-chat';
 const KEY_FILE = process.env.DEEPSEEK_KEY_FILE ?? 'D:/Games/API_KEY.txt';
-const ARC_SIZE = 25, CONTEXT_BUDGET = 24000, CUR_BLOCK = 4, CONCURRENCY = 6;
+const ARC_SIZE = 25, CONTEXT_BUDGET = 32000, CUR_BLOCK = 4, CONCURRENCY = 6;
 
 // ── key（不回显）──
 const rawKey = readFileSync(KEY_FILE, 'utf8');
@@ -43,8 +44,8 @@ console.log(`model=${MODEL} @ ${BASE_URL} | key loaded (len ${API_KEY.length})`)
 
 // ── prompts（镜像自 summarize.ts / companion.ts）──
 const SPOILER_RULE = '下面【已读内容】是读者到目前为止读过的部分（更早章节的要点小结 + 当前章已读原文）。只能依据【已读内容】作答，绝不能透露或推测读者尚未读到的后续情节。若【已读内容】不足以回答，就直说「目前读到的部分还没有相关内容」。用简洁中文。';
-const chapMsg = (t, b) => [{ role: 'system', content: '你是中文小说的摘要助手。请对给定章节输出"事实要点式"小结（人物、关键事件、关系变化），不加评论、不猜测后文，控制在 200 字内。' }, { role: 'user', content: `章节标题：${t}\n\n正文：\n${b}` }];
-const arcMsg = (s) => [{ role: 'system', content: '你是中文小说的摘要助手。请把多章的要点小结合并成一段更高层的"弧小结"，保留人物与主线，控制在 300 字内。' }, { role: 'user', content: s.map((x, i) => `[${i + 1}] ${x}`).join('\n') }];
+const chapMsg = (t, b) => [{ role: 'system', content: '你是中文小说的摘要助手。请对给定章节输出"事实要点式"小结，要点式列出，逐条覆盖以下几类信息（若某类本章未涉及可跳过）：1) 出场人物的身份，以及身世/来历线索——出身、师承、家世、过往经历等任何透露人物背景的细节，哪怕只是一句带过；2) 本章发生的关键事件及其先后顺序；3) 人物之间关系的建立或变化，例如结识、结怨、结盟、师徒、亲缘等；4) 重要设定、物品、地点——功法、法宝、门派、地名、规则等首次出现或获得新信息时须记录；5) 看似次要但可能是伏笔的事实——反常的细节、未被解释的暗示、被一带而过但日后可能有用的信息，都要单独列出，不要因为"看似不重要"而省略。只陈述章节内已经写明、已经发生的事实，不加评论、不做价值判断、不猜测后文走向、不推断文中未写明的因果关系，全部内容控制在 450 字以内。' }, { role: 'user', content: `章节标题：${t}\n\n正文：\n${b}` }];
+const arcMsg = (s) => [{ role: 'system', content: '你是中文小说的摘要助手。请把多章的要点小结合并成一段更高层的"弧小结"，保留人物与主线，控制在 400 字内。' }, { role: 'user', content: s.map((x, i) => `[${i + 1}] ${x}`).join('\n') }];
 const askMsg = (c, q) => [{ role: 'system', content: `你是读者的「已读伴读」助手。${SPOILER_RULE}` }, { role: 'user', content: `【已读内容】\n${c}\n\n【问题】${q}` }];
 const recapMsg = (c) => [{ role: 'system', content: `你是「剧情回顾」助手。请根据【已读内容】写一段到当前进度为止的「前情提要」，${SPOILER_RULE} 控制在 200–400 字。` }, { role: 'user', content: `【已读内容】\n${c}` }];
 const charMsg = (c, n) => [{ role: 'system', content: `你是「人物档案」助手。请介绍读者指定的人物：他是谁、目前为止做过什么、与谁是什么关系。${SPOILER_RULE} 若还没出现，就说「目前读到的部分还没出现这个人物」。` }, { role: 'user', content: `【已读内容】\n${c}\n\n【人物】${n}` }];
@@ -63,6 +64,100 @@ function selectContext({ arcSummaries, chapterSummaries, currentChapterText, cut
   const arcKept = [];
   for (let a = 0; a < arcs.length; a++) { const arc = arcs[a]; const f = arc.idx * arcSize, l = (arc.idx + 1) * arcSize - 1; if (f >= oldest) continue; const piece = `【第${f + 1}-${l + 1}章·概要】${arc.summary}`; if (used + piece.length + 1 > budget) break; arcKept.push(piece); usedArcs.push(arc.idx); used += piece.length + 1; }
   return { contextText: [parts[0], [...arcKept, ...recent].join('\n')].filter(Boolean).join('\n\n'), includedChapterIdx: inc, usedArcs, oldestChapter: oldest };
+}
+
+// ── 问书检索（镜像自 retrieval.ts + companion.ts 的 buildAskContext 编排）──
+const EXTRACT_SYS = '从问题中提取用于检索的关键词与人名/别名，只输出词，用逗号分隔，不要解释。';
+const PASSAGE_BUDGET = 8000;
+
+function parseTerms(raw) {
+  const seen = new Set(); const out = [];
+  for (const rawPiece of raw.split(/[，,、\n]+/)) {
+    const piece = rawPiece.trim().replace(/^\d+[.、)．）]+\s*/, '').trim();
+    if (!piece || /^\d+$/.test(piece)) continue;
+    if (!seen.has(piece)) { seen.add(piece); out.push(piece); }
+  }
+  return out.slice(0, 12);
+}
+function localTokens(question) {
+  const seen = new Set(); const out = [];
+  for (const t of question.split(/[\s，。？、,?.!]+/)) {
+    const w = t.trim();
+    if (w && !seen.has(w)) { seen.add(w); out.push(w); }
+  }
+  return out.slice(0, 12);
+}
+async function extractQueryTerms(question) {
+  const messages = [{ role: 'system', content: EXTRACT_SYS }, { role: 'user', content: question }];
+  try {
+    const { content } = await chat(messages, {});
+    const parsed = parseTerms(content ?? '');
+    return parsed.length > 0 ? parsed : localTokens(question);
+  } catch { return localTokens(question); }
+}
+function scoreChapterSummaries(summaries, terms) {
+  return summaries
+    .filter((s) => s.level === 0)
+    .map((s) => {
+      let score = 0;
+      for (const t of terms) {
+        if (!t) continue;
+        let from = 0;
+        for (;;) { const at = s.summary.indexOf(t, from); if (at === -1) break; score += 1; from = at + t.length; }
+      }
+      return { idx: s.idx, score };
+    })
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score);
+}
+function makeSearchSnippet(blockText, term, { before = 12, after = 40 } = {}) {
+  const idx = term ? blockText.toLowerCase().indexOf(term.toLowerCase()) : -1;
+  if (idx === -1) return blockText.slice(0, before + after + (term.length || 0));
+  const start = Math.max(0, idx - before);
+  const end = Math.min(blockText.length, idx + term.length + after);
+  let snip = blockText.slice(start, end);
+  if (start > 0) snip = '…' + snip;
+  if (end < blockText.length) snip = snip + '…';
+  return snip;
+}
+// chapters 已在内存里（parse() 的产物，body 不含标题），故直接切候选章原文，不做 I/O 网关。
+function retrieveRelevantPassages(chapters, { candidateIdx, terms, cutoff, maxBlocks = 12 }) {
+  const safe = candidateIdx.filter((i) => i <= cutoff); // 防剧透硬边界
+  const out = [];
+  for (const i of safe) {
+    if (out.length >= maxBlocks) break;
+    const chapter = chapters[i];
+    if (!chapter) continue;
+    const blocks = splitBlocks(`${chapter.title}\n${chapter.body}`);
+    for (let bi = 1; bi < blocks.length; bi++) { // 从 block1 起，跳过标题块 0
+      const block = blocks[bi];
+      const hit = terms.find((t) => t && block.includes(t));
+      if (!hit) continue;
+      out.push({ chapterIdx: i, blockIndex: bi, text: makeSearchSnippet(block, hit, { before: 80, after: 200 }) });
+      if (out.length >= maxBlocks) break;
+    }
+  }
+  return out;
+}
+/** 镜像 companion.ts 的 buildAskContext：检索候选章原文段 + selectContext 骨架。 */
+async function buildAskContextMirror({ chapters, chapterSummaries, arcSummaries, currentChapterText, cutoff, question }) {
+  const terms = await extractQueryTerms(question);
+  const ranked = scoreChapterSummaries(chapterSummaries, terms).slice(0, 10);
+  const candidateIdx = ranked.map((r) => r.idx).filter((i) => i <= cutoff);
+  const passages = retrieveRelevantPassages(chapters, { candidateIdx, terms, cutoff, maxBlocks: 12 });
+
+  let used = 0; const passLines = [];
+  for (const p of passages) {
+    if (p.chapterIdx > cutoff) continue;
+    const line = `【相关原文·第${p.chapterIdx + 1}章】${p.text}`;
+    if (used + line.length + 1 > PASSAGE_BUDGET) break;
+    passLines.push(line); used += line.length + 1;
+  }
+
+  const sel = selectContext({ arcSummaries, chapterSummaries, currentChapterText, cutoff, budgetChars: CONTEXT_BUDGET - used });
+  const contextText = [passLines.join('\n'), sel.contextText].filter(Boolean).join('\n\n');
+  const includedChapterIdx = Array.from(new Set([...passages.map((p) => p.chapterIdx), ...sel.includedChapterIdx])).filter((i) => i <= cutoff);
+  return { contextText, includedChapterIdx, terms, candidateIdx, passages };
 }
 
 // ── 基础设施 ──
@@ -97,9 +192,9 @@ async function runBook(file, enc, upto, out) {
   log(`  编码 ${enc} | 章 ${chapters.length} | 替换字符 ${fffd}${fffd > 30 ? '⚠️' : '✓'} | 读到第${CUR + 1}章「${chapters[CUR].title}」`);
 
   const summaries = new Array(chapters.length).fill(null); let truncated = 0; const t0 = Date.now();
-  await pool([...Array(cutoff + 1).keys()], CONCURRENCY, async (i) => { const { content, finishReason } = await chat(chapMsg(chapters[i].title, chapters[i].body), { maxTokens: 400, temperature: 0.3 }); summaries[i] = content; if (finishReason === 'length') truncated++; });
+  await pool([...Array(cutoff + 1).keys()], CONCURRENCY, async (i) => { const { content, finishReason } = await chat(chapMsg(chapters[i].title, chapters[i].body), { maxTokens: 700, temperature: 0.3 }); summaries[i] = content; if (finishReason === 'length') truncated++; });
   const lastArc = Math.floor((cutoff + 1) / ARC_SIZE) - 1; const arcSummaries = [];
-  for (let a = 0; a <= lastArc; a++) { const parts = []; for (let c = a * ARC_SIZE; c < (a + 1) * ARC_SIZE; c++) if (summaries[c]) parts.push(summaries[c]); const { content } = await chat(arcMsg(parts), { maxTokens: 500, temperature: 0.3 }); arcSummaries.push({ level: 1, idx: a, summary: content }); }
+  for (let a = 0; a <= lastArc; a++) { const parts = []; for (let c = a * ARC_SIZE; c < (a + 1) * ARC_SIZE; c++) if (summaries[c]) parts.push(summaries[c]); const { content } = await chat(arcMsg(parts), { maxTokens: 700, temperature: 0.3 }); arcSummaries.push({ level: 1, idx: a, summary: content }); }
   log(`  小结：${cutoff + 1} 章 + ${arcSummaries.length} 弧，用时 ${((Date.now() - t0) / 1000).toFixed(1)}s，截断 ${truncated}`);
 
   const curText = splitBlocks(`${chapters[CUR].title}\n${chapters[CUR].body}`).slice(0, CUR_BLOCK + 1).join('\n');
@@ -122,6 +217,17 @@ async function runBook(file, enc, upto, out) {
   const firstName = (names.content.split(/[、,，\s]+/)[0] || '主角').slice(0, 6);
   await probe(`人物·${firstName}`, charMsg(contextText, firstName), { temperature: 0.4 });
   const chrSp = await probe('人物剧透探针·最终boss', charMsg(contextText, '最终反派boss'), { temperature: 0.4 });
+
+  // ── 问书检索分支（镜像 buildAskContext）：身世/来历类问题最能体现「查询感知检索」
+  // 相对纯 selectContext 平铺上下文的召回差异——打印命中候选章 + 抽段数 + 最终答案，
+  // 供人工比对是否比 v1（上面「问已读·准确性」用的平铺 contextText）更准更能溯源。
+  const askQuestion = `${firstName}的身世/来历是什么？他/她是什么出身、经历过什么？`;
+  const askCtx = await buildAskContextMirror({
+    chapters, chapterSummaries: recs, arcSummaries, currentChapterText: curText, cutoff, question: askQuestion,
+  });
+  rep(`\n【问书检索·扩词】${JSON.stringify(askCtx.terms)}`);
+  rep(`【问书检索·候选章】${JSON.stringify(askCtx.candidateIdx.map((i) => i + 1))} | 命中原文段 ${askCtx.passages.length}`);
+  await probe(`问书检索·${firstName}身世`, askMsg(askCtx.contextText, askQuestion), { temperature: 0.4 });
 
   const verdict = `  判定 | 早期召回 ${refuse(early) ? '⚠️答不出' : '答出✓'} | 直问剧透 ${refuse(sp1.content ?? sp1) ? '拒答✓' : '⚠️泄露'} | 推测剧透 ${refuse(sp2.content ?? sp2) ? '拒答✓' : '⚠️泄露'} | 人物剧透 ${refuse(chrSp) ? '拒答✓' : '⚠️泄露'} | 弧覆盖 ${usedArcs.length > 0 ? `✓(${usedArcs.length})` : (oldestChapter <= 0 ? 'N/A(浅)' : '⚠️0')}`;
   log(verdict);

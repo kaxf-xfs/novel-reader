@@ -59,4 +59,14 @@ describe('AiSettingsModal', () => {
       expect(c.recapGapDays).toBe(7);
     });
   });
+
+  it('保存时带上 autoSummarize', async () => {
+    const { findByTestId, getByTestId, aiGw } = renderModal();
+    fireEvent.press(await findByTestId('ai-auto-summarize'));
+    fireEvent.press(getByTestId('ai-save'));
+    await waitFor(async () => {
+      const c = await loadAiConfig(aiGw);
+      expect(c.autoSummarize).toBe(true);
+    });
+  });
 });

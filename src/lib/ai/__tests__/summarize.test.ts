@@ -1,7 +1,29 @@
 import { FakeFileGateway, seedReader } from '../../../test-utils/fakes';
 import { InMemoryBookRepository } from '../../import/repository';
-import { AiError } from '../client';
-import { ensureSummaries, SUMMARY_PROMPT_VERSION, ARC_SIZE } from '../summarize';
+import { AiError, type ChatMessage } from '../client';
+import { ensureSummaries, chapterSummaryMessages, SUMMARY_PROMPT_VERSION, ARC_SIZE } from '../summarize';
+
+describe('chapterSummaryMessages prompt v2', () => {
+  it('章摘要 prompt v2 覆盖身世/伏笔且版本为 v2', () => {
+    expect(SUMMARY_PROMPT_VERSION).toBe('v2');
+    const sys = chapterSummaryMessages('标题', '正文')[0].content;
+    expect(sys).toContain('身世');
+    expect(sys).toContain('伏笔');
+  });
+});
+
+/** Wraps a fake chat fn to record which chapter idx (0-based, from the "第N章"
+ * title embedded in the user message) each call summarized. */
+function recordingChat(): { chat: jest.Mock<Promise<string>, [ChatMessage[], AbortSignal?]>; chapterIdx: number[] } {
+  const chapterIdx: number[] = [];
+  const chat = jest.fn(async (messages: ChatMessage[]) => {
+    const userContent = typeof messages[1]?.content === 'string' ? messages[1].content : '';
+    const m = /章节标题：第(\d+)章/.exec(userContent);
+    if (m) chapterIdx.push(Number(m[1]) - 1);
+    return 'S';
+  });
+  return { chat, chapterIdx };
+}
 
 async function setup(chapterCount: number) {
   const repo = new InMemoryBookRepository();
@@ -84,5 +106,60 @@ describe('ensureSummaries', () => {
     expect(await repo.getSummary('b1', 1, 0)).not.toBeNull();
     // arc 1 (would cover ARC_SIZE..) is incomplete → none
     expect(await repo.getSummary('b1', 1, 1)).toBeNull();
+  });
+
+  it('fromIdx>0 only backfills the window and never builds an arc', async () => {
+    const { repo, fs, book, chapters } = await setup(40);
+    const { chat, chapterIdx } = recordingChat();
+    await ensureSummaries({ chat, fs, repo }, { book, chapters, cutoff: 39, fromIdx: 35, model: 'm' });
+    expect(chapterIdx.slice().sort((a, b) => a - b)).toEqual([35, 36, 37, 38, 39]);
+    expect(await repo.listSummaries('b1', 1, 999)).toEqual([]); // no arc merged
+  });
+
+  it('upgradeStale=false leaves stale-version summaries alone and only fills true gaps', async () => {
+    const { repo, fs, book, chapters } = await setup(5);
+    for (let i = 0; i <= 3; i++) {
+      await repo.putSummary({ bookId: 'b1', level: 0, idx: i, model: 'm', promptVersion: 'v0', summary: 'old', createdAt: 1 });
+    }
+    const { chat, chapterIdx } = recordingChat();
+    await ensureSummaries({ chat, fs, repo }, { book, chapters, cutoff: 4, model: 'm', upgradeStale: false });
+    expect(chapterIdx).toEqual([4]); // only the truly-missing chapter 4; 0..3 (stale) untouched
+    for (let i = 0; i <= 3; i++) {
+      expect((await repo.getSummary('b1', 0, i))?.summary).toBe('old');
+    }
+  });
+
+  it('default fromIdx=0 + upgradeStale=true keeps the full-scan + arc behavior unchanged', async () => {
+    const { repo, fs, book, chapters } = await setup(30); // ARC_SIZE=25 → arc 0 is complete
+    const chat = jest.fn(async () => 'S');
+    await ensureSummaries({ chat, fs, repo }, { book, chapters, cutoff: 29, model: 'm' });
+    expect((await repo.listSummaries('b1', 0, 999)).length).toBe(30);
+    expect((await repo.listSummaries('b1', 1, 999)).map((s) => s.idx)).toEqual([0]); // arc 0 built
+  });
+
+  // 弧级也受 upgradeStale 门控——否则版本 bump 后深读用户首次问书会触发大量弧重合并。
+  async function seedFullArc(repo: InMemoryBookRepository, arcModel: string) {
+    for (let i = 0; i <= ARC_SIZE; i++) {
+      await repo.putSummary({ bookId: 'b1', level: 0, idx: i, model: 'm', promptVersion: SUMMARY_PROMPT_VERSION, summary: `c${i}`, createdAt: 1 });
+    }
+    await repo.putSummary({ bookId: 'b1', level: 1, idx: 0, model: arcModel, promptVersion: SUMMARY_PROMPT_VERSION, summary: 'OLD_ARC', createdAt: 1 });
+  }
+
+  it('upgradeStale=false leaves a stale-version arc summary un-remerged', async () => {
+    const { repo, fs, book, chapters } = await setup(ARC_SIZE + 2);
+    await seedFullArc(repo, 'OLD'); // arc 0 from an old model
+    const chat = jest.fn(async () => 'REMERGED');
+    await ensureSummaries({ chat, fs, repo }, { book, chapters, cutoff: ARC_SIZE, model: 'm', upgradeStale: false });
+    expect(chat).not.toHaveBeenCalled(); // no chapter re-summary AND no arc re-merge
+    expect((await repo.getSummary('b1', 1, 0))?.summary).toBe('OLD_ARC');
+  });
+
+  it('upgradeStale=true (default) does re-merge a stale-version arc summary', async () => {
+    const { repo, fs, book, chapters } = await setup(ARC_SIZE + 2);
+    await seedFullArc(repo, 'OLD');
+    const chat = jest.fn(async () => 'REMERGED');
+    await ensureSummaries({ chat, fs, repo }, { book, chapters, cutoff: ARC_SIZE, model: 'm' });
+    expect(chat).toHaveBeenCalledTimes(1); // chapters all cached → only the arc re-merge
+    expect((await repo.getSummary('b1', 1, 0))?.summary).toBe('REMERGED');
   });
 });

@@ -44,6 +44,27 @@ describe('buildReadContext (spoiler-safe)', () => {
     expect(contextText).toContain('第4章');
   });
 
+  it('version-tolerant: does NOT re-summarize stale-version chapters (no full-book re-churn on v2 bump)', async () => {
+    const repo = new InMemoryBookRepository();
+    const fs = new FakeFileGateway();
+    const chapters = Array.from({ length: 5 }, (_, i) => ({ title: `第${i + 1}章`, body: `正文${i + 1}` }));
+    const book = await seedReader(repo, fs, { bookId: 'b1', chapters });
+    const chapterRecords = await repo.getChapters('b1');
+    // 0,1 already cached under an OLD promptVersion; 2 genuinely missing
+    for (let i = 0; i <= 1; i++) {
+      await repo.putSummary({ bookId: 'b1', level: 0, idx: i, model: 'm', promptVersion: 'v0', summary: `old${i}`, createdAt: 1 });
+    }
+    const chat = jest.fn(async () => 'FRESH');
+    await buildReadContext(
+      { chat, fs, repo },
+      { book, chapters: chapterRecords, currentChapterIndex: 3, currentBlockIndex: 0, model: 'm' },
+    );
+    // only the truly-missing chapter 2 gets summarized; stale 0,1 left as-is
+    expect(chat).toHaveBeenCalledTimes(1);
+    expect((await repo.getSummary('b1', 0, 0))?.summary).toBe('old0');
+    expect((await repo.getSummary('b1', 0, 1))?.summary).toBe('old1');
+  });
+
   it('handles reading the very first chapter (cutoff -1, no summaries)', async () => {
     const repo = new InMemoryBookRepository();
     const fs = new FakeFileGateway();

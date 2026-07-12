@@ -47,7 +47,14 @@ import { ProgressJumpSheet } from '../reader/ProgressJumpSheet';
 import { BookmarksSheet } from '../reader/BookmarksSheet';
 import { AiPanel, type AiRunParams } from '../reader/AiPanel';
 import { useReadingSession } from '../reader/useReadingSession';
-import { buildReadContext, askBookMessages, storySoFarMessages, characterMessages } from '../lib/ai/companion';
+import { useAutoSummarize } from '../reader/useAutoSummarize';
+import {
+  buildReadContext,
+  buildAskContext,
+  askBookMessages,
+  storySoFarMessages,
+  characterMessages,
+} from '../lib/ai/companion';
 import { isRecapDue, buildResumeRecap, generateRecentRecap } from '../lib/ai/recap';
 import { ResumeRecapCard } from '../reader/ResumeRecapCard';
 import { chatComplete } from '../lib/ai/client';
@@ -430,26 +437,43 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
   );
 
   // AI 伴读：拼「已读内容」上下文（map-reduce 小结 + 当前章已读原文），按模式
-  // 选择 prompt，再发一次真正的问答请求。防剧透边界在 buildReadContext 内部。
+  // 选择 prompt，再发一次真正的问答请求。防剧透边界在 buildReadContext /
+  // buildAskContext 内部（ask 走查询感知的 buildAskContext，recap/人物走 buildReadContext）。
   const runAi = useCallback(
     async ({ mode, input, onProgress, signal }: AiRunParams): Promise<string> => {
       if (!book || !chapters) throw new Error('book not loaded');
+      // maxTokens 700：容纳 v2 更丰富的章小结（~450 字），避免 finish_reason:length 截断。
       const chat: SummarizeFn = async (messages, sig) =>
         (
-          await chatComplete({ config: aiConfig, messages, signal: sig, maxTokens: 400, temperature: 0.3 })
+          await chatComplete({ config: aiConfig, messages, signal: sig, maxTokens: 700, temperature: 0.3 })
         ).content;
-      const { contextText } = await buildReadContext(
-        { chat, fs, repo },
-        {
-          book,
-          chapters,
-          currentChapterIndex,
-          currentBlockIndex: currentBlockIndexRef.current,
-          model: aiConfig.model,
-          signal,
-          onProgress,
-        },
-      );
+      const { contextText } =
+        mode === 'ask'
+          ? await buildAskContext(
+              { chat, fs, repo },
+              {
+                book,
+                chapters,
+                currentChapterIndex,
+                currentBlockIndex: currentBlockIndexRef.current,
+                model: aiConfig.model,
+                question: input,
+                signal,
+                onProgress,
+              },
+            )
+          : await buildReadContext(
+              { chat, fs, repo },
+              {
+                book,
+                chapters,
+                currentChapterIndex,
+                currentBlockIndex: currentBlockIndexRef.current,
+                model: aiConfig.model,
+                signal,
+                onProgress,
+              },
+            );
       const messages =
         mode === 'ask'
           ? askBookMessages(contextText, input)
@@ -462,13 +486,36 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
     [aiConfig, book, chapters, currentChapterIndex, fs, repo],
   );
 
-  // 续读回顾卡：缓存读取走 buildResumeRecap（只读已缓存的章节小结，不调用
-  // chat 生成新小结），生成走 generateRecentRecap（有界回填最近窗口缺失的
-  // 小结后再合成）。两者共用同一个 chat 适配器。
+  // 增量7 T3：后台自动小结——章节前进后台静默补建/升级已读章的小结缓存，供
+  // AI 伴读复用（不打断阅读、无进度 UI）。maxTokens 提到 ~700 以容纳 v2 更长摘要。
+  const aiChat: SummarizeFn = useCallback(
+    async (messages, sig) =>
+      (
+        await chatComplete({ config: aiConfig, messages, signal: sig, maxTokens: 700, temperature: 0.3 })
+      ).content,
+    [aiConfig],
+  );
+  useAutoSummarize(
+    { chat: aiChat, fs, repo },
+    {
+      enabled:
+        aiConfig.autoSummarize && aiConfig.enabled && aiConfig.apiKey.length > 0 && aiConfig.consentAt !== null,
+      book,
+      chapters,
+      currentChapterIndex,
+      restoring,
+      model: aiConfig.model,
+    },
+  );
+
+  // 续读回顾卡：缓存读取走 buildResumeRecap（只读已缓存的章节小结 + 合成），
+  // 生成走 generateRecentRecap（有界回填最近窗口缺失的章小结后再合成）。两者
+  // 共用同一个 chat 适配器。maxTokens 700：generateRecentRecap 会用它生成 v2
+  // 章小结（~450 字），需足够上限；合成回顾本就短，700 只是上限不会拉长。
   const cachedChat: SummarizeFn = useCallback(
     async (messages, sig) =>
       (
-        await chatComplete({ config: aiConfig, messages, signal: sig, maxTokens: 200, temperature: 0.3 })
+        await chatComplete({ config: aiConfig, messages, signal: sig, maxTokens: 700, temperature: 0.3 })
       ).content,
     [aiConfig],
   );

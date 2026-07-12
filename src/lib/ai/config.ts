@@ -17,6 +17,8 @@ export interface AiConfig {
   recapEnabled: boolean;
   /** 隔多少天没读才弹回顾卡（0–90，0 = 只要有进度就弹，用于验证）。 */
   recapGapDays: number;
+  /** 后台自动整理已读章节小结（消耗 API）。 */
+  autoSummarize: boolean;
 }
 
 export const DEFAULT_AI_CONFIG: AiConfig = {
@@ -27,6 +29,7 @@ export const DEFAULT_AI_CONFIG: AiConfig = {
   consentAt: null,
   recapEnabled: true,
   recapGapDays: 7,
+  autoSummarize: false,
 };
 
 function clampGap(value: unknown): number {
@@ -52,6 +55,7 @@ export function sanitizeAiConfig(patch: Partial<AiConfig> | null | undefined): A
     consentAt: typeof p.consentAt === 'number' && Number.isFinite(p.consentAt) ? p.consentAt : null,
     recapEnabled: p.recapEnabled === undefined ? true : Boolean(p.recapEnabled),
     recapGapDays: clampGap(p.recapGapDays),
+    autoSummarize: p.autoSummarize === undefined ? false : Boolean(p.autoSummarize),
   };
 }
 
