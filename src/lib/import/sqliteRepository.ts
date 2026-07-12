@@ -59,6 +59,16 @@
  *     PRIMARY KEY (bookId, level, idx)
  *   )
  *
+ *   ai_codex (
+ *     bookId         TEXT PRIMARY KEY,
+ *     coveredUptoIdx INTEGER NOT NULL,  -- 已纳入抽取的最大章节 idx
+ *     model          TEXT NOT NULL,
+ *     promptVersion  TEXT NOT NULL,
+ *     json           TEXT NOT NULL,     -- 序列化后的 Codex（见 codex.ts）
+ *     updatedAt      INTEGER NOT NULL,
+ *     FOREIGN KEY (bookId) REFERENCES books(id) ON DELETE CASCADE
+ *   )
+ *
  * NOT unit-tested (native SQLite doesn't run in the Jest/Node environment).
  * Type correctness is guaranteed by tsc strict mode.
  *
@@ -77,6 +87,7 @@ import type {
   Bookmark,
   ReadingSession,
   SummaryRecord,
+  CodexRecord,
 } from './repository';
 
 const DB_NAME = 'novel-reader.db';
@@ -168,6 +179,18 @@ const CREATE_SUMMARIES_TABLE = `
   );
 `;
 
+const CREATE_CODEX_TABLE = `
+  CREATE TABLE IF NOT EXISTS ai_codex (
+    bookId         TEXT PRIMARY KEY,
+    coveredUptoIdx INTEGER NOT NULL,
+    model          TEXT NOT NULL,
+    promptVersion  TEXT NOT NULL,
+    json           TEXT NOT NULL,
+    updatedAt      INTEGER NOT NULL,
+    FOREIGN KEY (bookId) REFERENCES books(id) ON DELETE CASCADE
+  );
+`;
+
 // ---------------------------------------------------------------------------
 // SqliteBookRepository
 // ---------------------------------------------------------------------------
@@ -193,7 +216,8 @@ export class SqliteBookRepository implements BookRepository {
         CREATE_BOOKMARKS_TABLE +
         CREATE_SESSIONS_TABLE +
         CREATE_SESSIONS_INDEX +
-        CREATE_SUMMARIES_TABLE,
+        CREATE_SUMMARIES_TABLE +
+        CREATE_CODEX_TABLE,
     );
     return db;
   }
@@ -416,5 +440,21 @@ export class SqliteBookRepository implements BookRepository {
       bookId, level, uptoIdx,
     );
     return rows.map((r) => ({ ...r, level: r.level as 0 | 1 }));
+  }
+
+  async putCodex(record: CodexRecord): Promise<void> {
+    const db = await this.dbPromise;
+    await db.runAsync(
+      `INSERT OR REPLACE INTO ai_codex (bookId, coveredUptoIdx, model, promptVersion, json, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      record.bookId, record.coveredUptoIdx, record.model, record.promptVersion, record.json, record.updatedAt,
+    );
+  }
+
+  async getCodex(bookId: string): Promise<CodexRecord | null> {
+    const db = await this.dbPromise;
+    type Row = { bookId: string; coveredUptoIdx: number; model: string; promptVersion: string; json: string; updatedAt: number };
+    const row = await db.getFirstAsync<Row>('SELECT * FROM ai_codex WHERE bookId = ?', bookId);
+    return row ? { ...row } : null;
   }
 }

@@ -76,6 +76,17 @@ export interface SummaryRecord {
   createdAt: number;
 }
 
+export interface CodexRecord {
+  bookId: string;
+  /** 已纳入抽取的最大章节 idx（-1 = 尚未抽取任何内容）。 */
+  coveredUptoIdx: number;
+  model: string;
+  promptVersion: string;
+  /** 序列化后的 Codex（见 codex.ts）。 */
+  json: string;
+  updatedAt: number;
+}
+
 // ---------------------------------------------------------------------------
 // Repository interface
 // ---------------------------------------------------------------------------
@@ -110,6 +121,10 @@ export interface BookRepository {
   getSummary(bookId: string, level: 0 | 1, idx: number): Promise<SummaryRecord | null>;
   /** Returns level's summaries with idx ≤ uptoIdx, ascending by idx. */
   listSummaries(bookId: string, level: 0 | 1, uptoIdx: number): Promise<SummaryRecord[]>;
+  /** Upserts the one codex row for a book. */
+  putCodex(record: CodexRecord): Promise<void>;
+  /** Returns the codex row for a book, or null if none exists. */
+  getCodex(bookId: string): Promise<CodexRecord | null>;
 }
 
 // ---------------------------------------------------------------------------
@@ -123,6 +138,7 @@ export class InMemoryBookRepository implements BookRepository {
   private bookmarks = new Map<string, Bookmark>();
   private sessions: ReadingSession[] = [];
   private summaries = new Map<string, SummaryRecord>();
+  private codices = new Map<string, CodexRecord>();
 
   async addBook(b: BookRecord): Promise<void> {
     this.books.set(b.id, { ...b });
@@ -149,6 +165,7 @@ export class InMemoryBookRepository implements BookRepository {
     for (const [id, bm] of this.bookmarks) if (bm.bookId === bookId) this.bookmarks.delete(id);
     this.sessions = this.sessions.filter((s) => s.bookId !== bookId);
     for (const [k, s] of this.summaries) if (s.bookId === bookId) this.summaries.delete(k);
+    this.codices.delete(bookId);
   }
 
   async updateBookTitle(bookId: string, title: string): Promise<void> {
@@ -200,5 +217,13 @@ export class InMemoryBookRepository implements BookRepository {
       .filter((s) => s.bookId === bookId && s.level === level && s.idx <= uptoIdx)
       .sort((a, b) => a.idx - b.idx)
       .map((s) => ({ ...s }));
+  }
+
+  async putCodex(record: CodexRecord): Promise<void> {
+    this.codices.set(record.bookId, { ...record });
+  }
+
+  async getCodex(bookId: string): Promise<CodexRecord | null> {
+    return this.codices.get(bookId) ?? null;
   }
 }
