@@ -99,4 +99,24 @@ describe('chatComplete', () => {
     const err = (await chatComplete({ config: cfg, messages: msgs, fetchImpl: f }).catch((e) => e)) as AiError;
     expect(err.message).not.toContain('sk-test');
   });
+
+  it('passes response_format when responseFormat is set', async () => {
+    const fetchImpl = jest.fn(async () =>
+      jsonResponse(200, { choices: [{ message: { content: '{}' }, finish_reason: 'stop' }] }),
+    ) as unknown as typeof fetch;
+    await chatComplete({ config: cfg, messages: msgs, fetchImpl, responseFormat: 'json_object' });
+    const [, init] = (fetchImpl as jest.Mock).mock.calls[0];
+    const body = JSON.parse((init as RequestInit).body as string);
+    expect(body.response_format).toEqual({ type: 'json_object' });
+  });
+
+  it('omits response_format when not set (unchanged existing behavior)', async () => {
+    const fetchImpl = jest.fn(async () =>
+      jsonResponse(200, { choices: [{ message: { content: 'x' }, finish_reason: 'stop' }] }),
+    ) as unknown as typeof fetch;
+    await chatComplete({ config: cfg, messages: msgs, fetchImpl });
+    const [, init] = (fetchImpl as jest.Mock).mock.calls[0];
+    const body = JSON.parse((init as RequestInit).body as string);
+    expect(body.response_format).toBeUndefined();
+  });
 });

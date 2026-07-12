@@ -44,6 +44,8 @@ export interface ChatOptions {
   maxTokens?: number;
   temperature?: number;
   timeoutMs?: number;
+  /** best-effort JSON mode；部分 endpoint 不支持时静默忽略，由调用方自行做健壮 JSON 解析兜底。 */
+  responseFormat?: 'json_object';
 }
 
 function redact(text: string, key: string): string {
@@ -51,7 +53,7 @@ function redact(text: string, key: string): string {
 }
 
 export async function chatComplete(opts: ChatOptions): Promise<ChatResult> {
-  const { config, messages, signal, maxTokens, temperature, timeoutMs = 60_000 } = opts;
+  const { config, messages, signal, maxTokens, temperature, timeoutMs = 60_000, responseFormat } = opts;
   const doFetch = opts.fetchImpl ?? fetch;
   if (!config.apiKey) throw new AiError('no-key', 'AI 未配置 API key');
 
@@ -80,6 +82,7 @@ export async function chatComplete(opts: ChatOptions): Promise<ChatResult> {
         stream: false,
         ...(maxTokens != null ? { max_tokens: maxTokens } : {}),
         ...(temperature != null ? { temperature } : {}),
+        ...(responseFormat != null ? { response_format: { type: responseFormat } } : {}),
       }),
       signal: controller.signal,
     });
