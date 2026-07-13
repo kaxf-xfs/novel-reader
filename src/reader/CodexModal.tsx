@@ -21,7 +21,7 @@ export interface CodexModalProps {
   codex: Codex;
   complete: boolean;
   versionMismatch: boolean;
-  currentChapterNumber: number;
+  currentChapterLabel: string;
   busy: boolean;
   progress: { done: number; total: number } | null;
   error: string | null;
@@ -33,7 +33,7 @@ export interface CodexModalProps {
 export function CodexModal(props: CodexModalProps) {
   const {
     visible, onClose, configured, consented, onOpenSettings, onConsent,
-    codex, complete, versionMismatch, currentChapterNumber, busy, progress, error,
+    codex, complete, versionMismatch, currentChapterLabel, busy, progress, error,
     onComplete, onRebuild, onCancel,
   } = props;
   const { settings } = useSettings();
@@ -86,7 +86,7 @@ export function CodexModal(props: CodexModalProps) {
             disabled={busy}
             style={[styles.secondary, { borderColor: theme.accent, opacity: busy ? 0.5 : 1 }]}
           >
-            <Text style={[styles.secondaryText, { color: theme.accent }]}>补全到当前进度（第{currentChapterNumber}章）</Text>
+            <Text style={[styles.secondaryText, { color: theme.accent }]}>补全到当前进度（{currentChapterLabel}）</Text>
           </Pressable>
         )}
         {versionMismatch && (

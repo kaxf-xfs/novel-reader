@@ -13,7 +13,7 @@ const base = {
   codex: EMPTY_CODEX,
   complete: true,
   versionMismatch: false,
-  currentChapterNumber: 10,
+  currentChapterLabel: '第十章',
   busy: false,
   progress: null,
   error: null,
@@ -65,11 +65,18 @@ describe('CodexModal', () => {
 
   it('shows the complete-to-progress button when complete=false, and triggers onComplete', async () => {
     const onComplete = jest.fn();
-    const { findByTestId } = renderWithSettings(<CodexModal {...base} complete={false} currentChapterNumber={42} onComplete={onComplete} />);
+    const { findByTestId } = renderWithSettings(<CodexModal {...base} complete={false} currentChapterLabel="第四十二章 破阵" onComplete={onComplete} />);
     const btn = await findByTestId('codex-complete');
-    expect(btn).toHaveTextContent('第42章', { exact: false });
+    expect(btn).toHaveTextContent('第四十二章 破阵', { exact: false });
     fireEvent.press(btn);
     expect(onComplete).toHaveBeenCalled();
+  });
+
+  it('shows the complete-to-progress button label as-is when the chapter title is not of the form "第N章" (e.g. front matter)', async () => {
+    const { findByTestId } = renderWithSettings(<CodexModal {...base} complete={false} currentChapterLabel="楔子" />);
+    const btn = await findByTestId('codex-complete');
+    expect(btn).toHaveTextContent('楔子', { exact: false });
+    expect(btn).not.toHaveTextContent('第楔子章', { exact: false });
   });
 
   it('shows the rebuild button only on version mismatch, and triggers onRebuild', async () => {

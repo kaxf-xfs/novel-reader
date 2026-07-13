@@ -944,7 +944,7 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
         codex={displayCodex}
         complete={codexComplete}
         versionMismatch={codexVersionMismatch}
-        currentChapterNumber={currentChapterIndex + 1}
+        currentChapterLabel={currentTitle}
         busy={codexBusy}
         progress={codexProgress}
         error={codexError}
