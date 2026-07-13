@@ -919,7 +919,14 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
         onClose={() => setShowAi(false)}
         configured={aiConfig.enabled && aiConfig.apiKey.length > 0}
         consented={aiConfig.consentAt !== null}
-        onOpenSettings={() => setShowAiSettings(true)}
+        onOpenSettings={() => {
+          // Close this panel before opening settings — never have two
+          // Modal-backed sheets simultaneously visible (see Bug B in the
+          // hotfix report: two stacked native modals froze the app on
+          // dismiss on real iOS devices).
+          setShowAi(false);
+          setShowAiSettings(true);
+        }}
         onConsent={() => updateAiConfig({ consentAt: Date.now() })}
         run={runAi}
       />
@@ -929,7 +936,10 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
         onClose={() => setShowCodex(false)}
         configured={aiConfig.enabled && aiConfig.apiKey.length > 0}
         consented={aiConfig.consentAt !== null}
-        onOpenSettings={() => setShowAiSettings(true)}
+        onOpenSettings={() => {
+          setShowCodex(false);
+          setShowAiSettings(true);
+        }}
         onConsent={() => updateAiConfig({ consentAt: Date.now() })}
         codex={displayCodex}
         complete={codexComplete}

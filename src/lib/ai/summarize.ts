@@ -125,16 +125,32 @@ export async function ensureSummaries(deps: Deps, params: EnsureSummariesParams)
   // doesn't have the full chapter range in view, so it must not build arcs.
   if (fromIdx === 0) {
     const lastCompleteArc = Math.floor((cutoff + 1) / ARC_SIZE) - 1;
+    // Same bulk-fetch-before-loop fix as phase 1 above: on a first-ever run
+    // (no arc summaries yet) the old code did one getSummary() per arc PLUS
+    // up to ARC_SIZE more getSummary() calls per arc needing a merge — for a
+    // 2000-chapter book that's ~80 + ~2000 sequential native-bridge round
+    // trips, which froze the app the same way phase 1 used to. Two bulk
+    // listSummaries() calls replace all of that with synchronous Map lookups.
+    // Must run AFTER phase 1's runPool so it sees chapter summaries phase 1
+    // just wrote (fetching earlier would silently produce incomplete arcs).
+    const cachedArcByIdx = new Map<number, SummaryRecord>();
+    const chapterSummaryByIdx = new Map<number, SummaryRecord>();
+    if (lastCompleteArc >= 0) {
+      const cachedArcs = await repo.listSummaries(book.id, 1, lastCompleteArc);
+      for (const s of cachedArcs) cachedArcByIdx.set(s.idx, s);
+      const cachedChapters = await repo.listSummaries(book.id, 0, cutoff);
+      for (const s of cachedChapters) chapterSummaryByIdx.set(s.idx, s);
+    }
     for (let arc = 0; arc <= lastCompleteArc; arc++) {
       throwIfCancelled();
-      const existing = await repo.getSummary(book.id, 1, arc);
+      const existing = cachedArcByIdx.get(arc) ?? null;
       // upgradeStale=false（全量按需保底路径）：任何已有弧小结都视为可用、不因
       // model/promptVersion 变化重合并——否则版本 bump 后深读用户首次问书会触发
       // cutoff/ARC_SIZE 次弧重合并（一次性但可观），与「版本容忍迁移」承诺相悖。
       if (existing && (!upgradeStale || (existing.model === model && existing.promptVersion === SUMMARY_PROMPT_VERSION))) continue;
       const parts: string[] = [];
       for (let c = arc * ARC_SIZE; c < (arc + 1) * ARC_SIZE; c++) {
-        const s = await repo.getSummary(book.id, 0, c);
+        const s = chapterSummaryByIdx.get(c);
         if (s) parts.push(s.summary);
       }
       const merged = await chat(arcSummaryMessages(parts), signal);

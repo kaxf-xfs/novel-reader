@@ -504,4 +504,45 @@ describe('ReaderScreen', () => {
       global.fetch = originalFetch;
     }
   });
+
+  // Real-device freeze fix: tapping "设置" inside AiPanel used to leave AiPanel
+  // itself visible (showAi stayed true) while AiSettingsModal opened on top of
+  // it — two simultaneously-visible native Modals, a known source of iOS
+  // modal-dismiss instability. Opening settings must now close AiPanel first.
+  it('closes the AI panel when opening AI settings from within it', async () => {
+    const { repo, fs } = setup();
+    await seedReader(repo, fs, { bookId: 'baisettings', chapters: CHAPTERS, progressChapterIndex: 0 });
+
+    const { findByText, findByTestId, getByTestId, queryByTestId } = renderReader(repo, fs, 'baisettings');
+
+    await findByText(/内容一。/);
+    tapSurface(getByTestId('reader-surface')); // reveal bottom bar
+    fireEvent.press(await findByText('AI'));
+    expect(await findByTestId('ai-panel')).toBeTruthy();
+
+    fireEvent.press(await findByTestId('ai-open-settings-top'));
+
+    expect(await findByTestId('ai-settings')).toBeTruthy();
+    expect(queryByTestId('ai-panel')).toBeNull();
+  });
+
+  // Same fix, 图鉴 → 设置 path: CodexModal's "去设置" link (shown in the
+  // unconfigured gate, the default test state) must close CodexModal before
+  // AiSettingsModal opens.
+  it('closes the codex modal when opening AI settings from within it', async () => {
+    const { repo, fs } = setup();
+    await seedReader(repo, fs, { bookId: 'bcodexsettings', chapters: CHAPTERS, progressChapterIndex: 0 });
+
+    const { findByText, findByTestId, getByTestId, queryByTestId } = renderReader(repo, fs, 'bcodexsettings');
+
+    await findByText(/内容一。/);
+    tapSurface(getByTestId('reader-surface')); // reveal bottom bar
+    fireEvent.press(await findByText('图鉴'));
+    expect(await findByTestId('codex-need-config')).toBeTruthy(); // 默认未配置 AI
+
+    fireEvent.press(await findByTestId('codex-open-settings'));
+
+    expect(await findByTestId('ai-settings')).toBeTruthy();
+    expect(queryByTestId('codex-modal')).toBeNull();
+  });
 });

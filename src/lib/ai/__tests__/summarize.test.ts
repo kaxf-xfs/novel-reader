@@ -168,9 +168,10 @@ describe('ensureSummaries', () => {
   // unbounded by count) before doing any real work. It must now do a single
   // bulk repo.listSummaries() call instead. This test seeds a large,
   // fully-cached book (chapters + complete arcs, all matching model/version)
-  // and asserts repo.getSummary() is called only a small, arc-count-bounded
-  // number of times (the pre-existing arc-merge existence check, unrelated to
-  // this fix) — never once per chapter.
+  // and asserts repo.getSummary() is never called at all — both phase 1
+  // (missing-chapter scan) and phase 2 (arc-merge existence check + per-
+  // chapter arc-part lookup) now go through bulk listSummaries() + Map
+  // lookups instead.
   it('scans missing chapters via one bulk listSummaries() call, not one getSummary() per chapter', async () => {
     const CHAPTER_COUNT = 200;
     const { repo, fs, book, chapters } = await setup(CHAPTER_COUNT);
@@ -186,10 +187,36 @@ describe('ensureSummaries', () => {
     const chat = jest.fn(async () => 'S');
     await ensureSummaries({ chat, fs, repo }, { book, chapters, cutoff: CHAPTER_COUNT - 1, model: 'm' });
     expect(chat).not.toHaveBeenCalled(); // everything already cached with matching model/version — no work to do
-    expect(listSummariesSpy).toHaveBeenCalledTimes(1); // the new bulk scan
-    // getSummary() is still called once per arc by the (unchanged) arc-merge
-    // existence check — bounded by arc count, NOT by chapter count.
-    expect(getSummarySpy).toHaveBeenCalledTimes(arcCount);
-    expect(getSummarySpy.mock.calls.length).toBeLessThan(CHAPTER_COUNT);
+    // 1 for phase 1's bulk chapter scan + 2 for phase 2 (bulk arc-existence
+    // scan + bulk chapter-summary scan for building arc parts).
+    expect(listSummariesSpy).toHaveBeenCalledTimes(3);
+    // getSummary() (per-item native-bridge round trip) is no longer used by
+    // either phase — everything goes through the bulk-fetched Maps.
+    expect(getSummarySpy).not.toHaveBeenCalled();
+  });
+
+  // This is the test that would have caught Bug A before it shipped: a
+  // first-ever run where NO arc summaries exist yet AND enough chapters span
+  // multiple complete arcs. The old code did one getSummary(level 1, arc)
+  // existence check per arc PLUS up to ARC_SIZE getSummary(level 0, c) calls
+  // per arc needing a merge — for 3 complete arcs that's 3 + 3*ARC_SIZE
+  // sequential native-bridge round trips. The fix replaces all of that with
+  // two bulk listSummaries() calls + Map lookups, so getSummary() should
+  // never be called by the arc-merge phase regardless of arc/chapter count.
+  it('first run with multiple complete arcs and no prior arc summaries never calls getSummary()', async () => {
+    const CHAPTER_COUNT = ARC_SIZE * 3 + 2;
+    const { repo, fs, book, chapters } = await setup(CHAPTER_COUNT);
+    // Pre-seed chapter-level summaries so phase 1 has nothing to do and only
+    // phase 2 (arc merge) is exercised; no arc-level (level 1) summaries exist.
+    for (let i = 0; i < CHAPTER_COUNT; i++) {
+      await repo.putSummary({ bookId: 'b1', level: 0, idx: i, model: 'm', promptVersion: SUMMARY_PROMPT_VERSION, summary: `s${i}`, createdAt: 1 });
+    }
+    const getSummarySpy = jest.spyOn(repo, 'getSummary');
+    const chat = jest.fn(async () => 'MERGED');
+    await ensureSummaries({ chat, fs, repo }, { book, chapters, cutoff: CHAPTER_COUNT - 1, model: 'm' });
+    expect(getSummarySpy).not.toHaveBeenCalled();
+    // Sanity: the 3 complete arcs (0, 1, 2) did get merged.
+    expect((await repo.listSummaries('b1', 1, 999)).map((s) => s.idx)).toEqual([0, 1, 2]);
+    expect(chat).toHaveBeenCalledTimes(3);
   });
 });
