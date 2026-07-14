@@ -461,6 +461,75 @@ describe('ReaderScreen', () => {
     }
   });
 
+  it('passes a polishChat function to ensureCodex so the polish pass can run', async () => {
+    const { repo, fs } = setup();
+    // progressChapterIndex:1 → cutoff=0，才有章节可供抽取（idx0）。抽出的新角色没有
+    // bio → isCharacterDirty=true → 追上 cutoff 后 ensureCodex 会自动触发一次润色调用。
+    await seedReader(repo, fs, { bookId: 'bcodexpolish', chapters: CHAPTERS, progressChapterIndex: 1 });
+
+    const aiGateway = new InMemorySettingsGateway();
+    await saveAiConfig(
+      aiGateway,
+      sanitizeAiConfig({
+        enabled: true,
+        apiKey: 'sk-test',
+        model: 'deepseek-chat',
+        consentAt: Date.now(),
+        autoSummarize: true, // autoOn=true → ensureCodex 先走 ensureSummaries，真正打到 chatComplete/fetch
+      }),
+    );
+
+    // 复用文件里已有的「aborts an in-flight codex extraction...」测试的 global.fetch
+    // mock 惯例，但这里让请求真正 resolve：按 system prompt 内容路由到摘要/抽取/润色
+    // 三种不同的桩响应，让流程真正跑到润色阶段，而不是像 abort 测试那样永不 resolve。
+    const fetchMock = jest.fn((_url: string, init: RequestInit) => {
+      const body = JSON.parse(init.body as string) as { messages: { role: string; content: string }[] };
+      const systemContent = body.messages.find((m) => m.role === 'system')?.content ?? '';
+      let content: string;
+      if (systemContent.includes('信息抽取助手')) {
+        content = JSON.stringify({ characters: [{ name: '主角', identity: ['少年'] }], terms: [], relations: [] });
+      } else if (systemContent.includes('整合') && systemContent.includes('连贯')) {
+        content = JSON.stringify({ bios: [{ name: '主角', bio: '整合后的简介' }] });
+      } else {
+        content = '摘要内容'; // 章摘要助手
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ choices: [{ message: { content }, finish_reason: 'stop' }] }),
+      } as unknown as Response);
+    });
+    const originalFetch = global.fetch;
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    try {
+      const { findByText, getByTestId } = renderWithSettings(
+        <AiConfigProvider gateway={aiGateway}>
+          <ReaderScreen repo={repo} fs={fs} bookId="bcodexpolish" onBack={() => {}} />
+        </AiConfigProvider>,
+      );
+
+      await findByText(/内容二。/); // progressChapterIndex:1 → 打开即在第二章
+      tapSurface(getByTestId('reader-surface'));
+      fireEvent.press(await findByText('图鉴'));
+
+      // 断言：除了已有的抽取/摘要请求外，发往 AI 服务商的请求里至少应该出现一次
+      // 请求体的 messages 匹配润色 prompt 的特征字样（"整合"、"连贯"）——证明
+      // polishChat 确实被调用、并被传给了 ensureCodex。
+      await waitFor(() => {
+        const polishCall = fetchMock.mock.calls.find(([, init]) => {
+          const body = JSON.parse((init as RequestInit).body as string) as {
+            messages: { role: string; content: string }[];
+          };
+          const systemContent = body.messages.find((m) => m.role === 'system')?.content ?? '';
+          return systemContent.includes('整合') && systemContent.includes('连贯');
+        });
+        expect(polishCall).toBeTruthy();
+      });
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
   it('does not auto-load the codex before consent, even with autoSummarize on', async () => {
     const { repo, fs } = setup();
     // progressChapterIndex:1 → cutoff=0，才有章节可供 ensureCodex 处理（cutoff<0 会直接短路）。

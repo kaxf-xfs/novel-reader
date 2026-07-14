@@ -61,6 +61,7 @@ import { chatComplete, AiError, type ChatMessage, type ChatResult } from '../lib
 import type { SummarizeFn } from '../lib/ai/summarize';
 import { CodexModal } from '../reader/CodexModal';
 import { ensureCodex } from '../lib/ai/ensureCodex';
+import type { PolishChatFn } from '../lib/ai/codexPolish';
 import { codexForCutoff, EMPTY_CODEX, type Codex } from '../lib/ai/codex';
 
 interface ReaderScreenProps {
@@ -517,6 +518,14 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
       chatComplete({ config: aiConfig, messages, signal: sig, maxTokens: 1600, temperature: 0.2, responseFormat: 'json_object' }),
     [aiConfig],
   );
+
+  // 润色 pass 的独立 chat 适配器：更低的 maxTokens（简介本身要求 60-140 字，
+  // 批量~6个实体一次调用，token 需求远小于抽取）；同样开 JSON mode。
+  const polishChat: PolishChatFn = useCallback(
+    async (messages: ChatMessage[], sig?: AbortSignal): Promise<ChatResult> =>
+      chatComplete({ config: aiConfig, messages, signal: sig, maxTokens: 900, temperature: 0.3, responseFormat: 'json_object' }),
+    [aiConfig],
+  );
   useAutoSummarize(
     { chat: aiChat, fs, repo },
     {
@@ -574,7 +583,7 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
       codexAbortRef.current = ctrl;
       try {
         const res = await ensureCodex(
-          { chat: codexChat, summarizeChat: aiChat, fs, repo },
+          { chat: codexChat, polishChat, summarizeChat: aiChat, fs, repo },
           {
             book,
             chapters,
@@ -599,7 +608,7 @@ export function ReaderScreen({ repo, fs, bookId, onBack }: ReaderScreenProps) {
         codexAbortRef.current = null;
       }
     },
-    [book, chapters, currentChapterIndex, codexChat, aiChat, fs, repo, aiConfig.model, aiConfig.autoSummarize],
+    [book, chapters, currentChapterIndex, codexChat, polishChat, aiChat, fs, repo, aiConfig.model, aiConfig.autoSummarize],
   );
 
   // 首次打开图鉴时自动加载一次（等价于按一次「补全到当前进度」）。必须同时满足
