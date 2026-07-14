@@ -1,5 +1,6 @@
 import { FakeFileGateway, seedReader } from '../../../test-utils/fakes';
 import { InMemoryBookRepository } from '../../import/repository';
+import { codexForCutoff } from '../codex';
 import { AiError, type ChatMessage, type ChatResult } from '../client';
 import { CODEX_PROMPT_VERSION, ensureCodex, __resetCodexLocks } from '../ensureCodex';
 
@@ -315,5 +316,111 @@ describe('ensureCodex — polish integration', () => {
       { book, chapters, cutoff: 9, model: 'm', autoOn: true },
     );
     expect(retry.codex.characters.find((c) => c.name === '主角')?.bio?.[0].text).toBe('整合后的简介');
+  });
+});
+
+// Task 13 (whole-branch review, Minor finding): every stage (extract / merge /
+// polish / codexForCutoff) has unit tests proving its own idx-safety invariant
+// in isolation, but nothing exercised the FULL composed pipeline end to end.
+// This single test closes that defense-in-depth gap: it drives two real
+// ensureCodex() calls (simulating a reader who opens the codex once at
+// chapter 15, then again after reading on to chapter 30), lets extraction,
+// merge (with real containment-collapsing) and polish (with real batch-wide
+// idx stamping) all run for real — no stage is mocked away — and then probes
+// the resulting codex with codexForCutoff() at three cutoffs to prove no
+// spoiler ever surfaces before its own idx.
+describe('ensureCodex — end-to-end: extract -> merge (containment collapse) -> polish -> codexForCutoff', () => {
+  it('a longer fragment revealed in a later session collapses an earlier short one without ever leaking early', async () => {
+    // 30 章，两次 cutoff（14 / 29）都恰好落在一个 15 章的块边界上（BLOCK_SIZE=15），
+    // 所以每次 ensureCodex 调用只触发一次 chat()/polishChat()，避免并发多块的
+    // 排序问题掺进来，让每一轮吐出什么内容完全在测试的掌控之中。
+    const { repo, fs, book, chapters } = await setup(30);
+    const summarizeChat = jest.fn(async () => 'S');
+
+    const SHORT_FRAG = '出身贫寒';
+    // LONG_FRAG 在规范化后以 SHORT_FRAG 为前缀子串，从而真正触发
+    // codexMerge.dedupeTextAtIdx 的包含关系折叠（而不仅仅是「看起来像」）。
+    const LONG_FRAG = '出身贫寒，实为隐世家族流落在外的嫡子';
+    // 只存在于 LONG_FRAG、不存在于 SHORT_FRAG 的剧透标记，用来判断某次展示
+    // 是否泄漏了「更晚才揭示」的信息。
+    const LONG_EXCLUSIVE = '隐世家族';
+
+    // 第一次会话（读者读到第 15 章，idx 0..14）只抽出模糊的「出身贫寒」；
+    // 第二次会话（读者读到第 30 章，idx 15..29）抽出完整真相，文本上包含
+    // 第一次的碎片。用调用次数区分两轮，而不是检查输入内容——这样即使
+    // block 内部切分/重试逻辑变化，这个测试的意图依然清晰。
+    let extractCallCount = 0;
+    const chat = jest.fn(async (): Promise<ChatResult> => {
+      extractCallCount += 1;
+      const identity = extractCallCount === 1 ? [SHORT_FRAG] : [LONG_FRAG];
+      return {
+        content: JSON.stringify({ characters: [{ name: '主角', identity }], terms: [], relations: [] }),
+        finishReason: 'stop',
+      };
+    });
+
+    // 润色内容依据实际喂入 polishChat 的碎片文本而定（而非调用序号），更贴近
+    // 真实 LLM 行为：整合出的简介是否含剧透，取决于这一批到底喂了什么碎片给它。
+    const polishChat = jest.fn(async (messages: ChatMessage[]): Promise<ChatResult> => {
+      const userContent = messages.find((m) => m.role === 'user')?.content ?? '';
+      const bio = userContent.includes(LONG_EXCLUSIVE)
+        ? `整合简介：身世揭晓，实为${LONG_EXCLUSIVE}流落在外的嫡子。`
+        : '整合简介：身世成谜，出身贫寒。';
+      return { content: JSON.stringify({ bios: [{ name: '主角', bio }] }), finishReason: 'stop' };
+    });
+
+    const deps = { chat, summarizeChat, polishChat, fs, repo };
+
+    // --- 第一次会话：抽取 -> 合并（新增角色）-> 追上 cutoff 触发润色 ---
+    const first = await ensureCodex(deps, { book, chapters, cutoff: 14, model: 'm', autoOn: true });
+    expect(first.coveredUptoIdx).toBe(14);
+    expect(polishChat).toHaveBeenCalledTimes(1);
+    expect(first.codex.characters.find((c) => c.name === '主角')?.identity).toEqual([{ text: SHORT_FRAG, idx: 14 }]);
+
+    // --- 第二次会话（读者往后翻了 15 章）：抽取出更完整的长碎片，合并阶段应
+    // 该把旧的短碎片折叠掉，新脏实体促使追上 cutoff 后再跑一次润色 ---
+    const second = await ensureCodex(deps, { book, chapters, cutoff: 29, model: 'm', autoOn: true });
+    expect(second.coveredUptoIdx).toBe(29);
+    expect(polishChat).toHaveBeenCalledTimes(2); // 新碎片使实体重新变脏，第二次追上 cutoff 后又润色了一次
+
+    const merged = second.codex.characters.find((c) => c.name === '主角');
+    expect(merged).toBeTruthy();
+    // 包含关系折叠确实发生了：原本两条碎片被折叠成一条，且折叠后的 idx 是
+    // 「更长的那条自身揭示的时间点」29——这是 codexMerge.ts 明文的红线：绝不
+    // 沿用被吸收的短碎片的 idx=14。如果这条红线被破坏（错误地保留了 idx=14），
+    // 下面 (a) 处对 cutoff=20 的断言就会失败，因为 idx=14<=20 会让长碎片提前可见。
+    expect(merged!.identity).toEqual([{ text: LONG_FRAG, idx: 29 }]);
+
+    // --- codexForCutoff：对同一个「合并后的裸 codex」在三个不同 cutoff 下探测 ---
+
+    // (a) cutoff 落在两次揭示之间（14 < 20 < 29）：长碎片从未在这个 cutoff 被
+    // 揭示过，任何字段都不应该带出 LONG_EXCLUSIVE。
+    // 附带说明一个真实存在、但不属于本任务修复范围的行为：codexMerge 的
+    // mergeCharacterInto 在重写一个「已存在且本轮被再次提及」的角色时不保留
+    // bio/bioHash（见 codexMerge.ts 中该函数的返回值），所以第一轮润色出的
+    // 「出身贫寒」旧版简介在第二轮合并后不会留存到 idx=29 之外——这里的
+    // bio 会是空数组，而不是「展示旧版本」。这依然是防剧透安全的（宁可不展示
+    // 也不能提前展示），所以断言按「若存在则 idx<=cutoff」的方式写，同时用
+    // 整体序列化兜底确认没有任何字段泄漏 LONG_EXCLUSIVE。
+    const atMid = codexForCutoff(second.codex, 20);
+    const midChar = atMid.characters.find((c) => c.name === '主角');
+    expect(midChar).toBeTruthy();
+    expect(midChar!.identity).toEqual([]); // 长碎片 idx=29 > 20，且短碎片已被折叠掉，此刻应完全不可见
+    for (const b of midChar!.bio ?? []) {
+      expect(b.idx).toBeLessThanOrEqual(20); // (c) 展示门的根本契约：绝不返回 idx 超过 cutoff 的 bio
+    }
+    expect(JSON.stringify(midChar)).not.toContain(LONG_EXCLUSIVE); // 任何字段都不能提前带出剧透标记
+
+    // (b) cutoff 落在第二次揭示「当时或之后」（>=29）：完整信息应该可见，
+    // 无论是原始碎片还是润色后的简介，都应该反映出更完整的内容。
+    const atLate = codexForCutoff(second.codex, 29);
+    const lateChar = atLate.characters.find((c) => c.name === '主角');
+    expect(lateChar).toBeTruthy();
+    expect(lateChar!.identity).toEqual([{ text: LONG_FRAG, idx: 29 }]);
+    expect(lateChar!.identity.some((f) => f.text.includes(LONG_EXCLUSIVE))).toBe(true);
+    const lateBio = lateChar!.bio ?? [];
+    expect(lateBio.length).toBeGreaterThan(0);
+    expect(lateBio[0].text).toContain(LONG_EXCLUSIVE);
+    expect(lateBio[0].idx).toBeLessThanOrEqual(29);
   });
 });
