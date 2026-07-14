@@ -3,6 +3,10 @@ import { renderWithSettings } from '../../test-utils/render';
 import { EMPTY_CODEX, type Codex } from '../../lib/ai/codex';
 import { CodexModal } from '../CodexModal';
 
+function defaultProps() {
+  return base;
+}
+
 const base = {
   visible: true,
   onClose: jest.fn(),
@@ -110,7 +114,88 @@ describe('CodexModal', () => {
     });
     const { findByTestId } = renderWithSettings(<CodexModal {...base} codex={codex} />);
     fireEvent.press(await findByTestId('codex-tab-graph'));
-    fireEvent.press(await findByTestId('graph-node-甲'));
+    // 增量 8.5: RelationRoster（Task 9）取代了旧 RelationshipGraph 的整体网状图，
+    // 节点 testID 前缀相应从 graph-node- 变为 roster-node-。
+    fireEvent.press(await findByTestId('roster-node-甲'));
     expect(await findByTestId('codex-character-detail')).toHaveTextContent('主角', { exact: false });
+  });
+});
+
+describe('CodexModal — search and full field display (增量 8.5)', () => {
+  it('filters the character list by typing in the search box', () => {
+    const codex: Codex = {
+      characters: [
+        { name: '张三', aliases: [], identity: [], groups: [], firstChapterIdx: 0 },
+        { name: '李四', aliases: [], identity: [], groups: [], firstChapterIdx: 0 },
+      ],
+      terms: [],
+      relations: [],
+    };
+    const { getByTestId, queryByText } = renderWithSettings(<CodexModal {...defaultProps()} codex={codex} />);
+    fireEvent.changeText(getByTestId('codex-character-search'), '张');
+    expect(queryByText('张三')).toBeTruthy();
+    expect(queryByText('李四')).toBeFalsy();
+  });
+
+  it('character detail card shows aliases, groups, and events (previously never rendered)', () => {
+    const codex: Codex = {
+      characters: [{
+        name: '张三',
+        aliases: [{ text: '玄天真人', idx: 0 }],
+        identity: [{ text: '身份描述', idx: 0 }],
+        groups: [{ name: '青云门', idx: 0 }],
+        firstChapterIdx: 0,
+        events: [{ text: '初入宗门', idx: 0 }],
+      }],
+      terms: [],
+      relations: [],
+    };
+    const { getByTestId, getByText } = renderWithSettings(<CodexModal {...defaultProps()} codex={codex} />);
+    fireEvent.press(getByTestId('codex-character-张三'));
+    expect(getByText('玄天真人')).toBeTruthy();
+    expect(getByText('青云门')).toBeTruthy();
+    expect(getByText('初入宗门')).toBeTruthy();
+  });
+
+  it('character detail prefers bio over raw identity fragments when bio is present', () => {
+    const codex: Codex = {
+      characters: [{
+        name: '张三', aliases: [], groups: [], firstChapterIdx: 0,
+        identity: [{ text: '零散身份碎片', idx: 0 }],
+        bio: [{ text: '整合后的连贯简介', idx: 0 }],
+      }],
+      terms: [],
+      relations: [],
+    };
+    const { getByTestId, getByText, queryByText } = renderWithSettings(<CodexModal {...defaultProps()} codex={codex} />);
+    fireEvent.press(getByTestId('codex-character-张三'));
+    expect(getByText('整合后的连贯简介')).toBeTruthy();
+    expect(queryByText('零散身份碎片')).toBeFalsy();
+  });
+
+  it('terms tab groups by category with section headers', () => {
+    const codex: Codex = {
+      characters: [],
+      terms: [
+        { name: '青云诀', category: '功法', def: [{ text: 'x', idx: 0 }], firstChapterIdx: 0 },
+        { name: '天南国', category: '地理', def: [{ text: 'y', idx: 0 }], firstChapterIdx: 0 },
+      ],
+      relations: [],
+    };
+    const { getByTestId, getByText } = renderWithSettings(<CodexModal {...defaultProps()} codex={codex} />);
+    fireEvent.press(getByTestId('codex-tab-terms'));
+    expect(getByText('功法')).toBeTruthy();
+    expect(getByText('地理')).toBeTruthy();
+  });
+
+  it('relation tab renders RelationRoster, not the old spatial graph', () => {
+    const codex: Codex = {
+      characters: [{ name: '张三', aliases: [], identity: [], groups: [{ name: '青云门', idx: 0 }], firstChapterIdx: 0 }],
+      terms: [],
+      relations: [],
+    };
+    const { getByTestId } = renderWithSettings(<CodexModal {...defaultProps()} codex={codex} />);
+    fireEvent.press(getByTestId('codex-tab-graph'));
+    expect(getByTestId('relation-roster')).toBeTruthy();
   });
 });
