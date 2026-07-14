@@ -96,4 +96,28 @@ describe('mergeCodex — containment near-dup guard', () => {
     const merged = mergeCodex(EMPTY_CODEX, blockResults);
     expect(merged.characters[0].identity).toHaveLength(1);
   });
+
+  it('an incoming fragment that subsumes TWO separate existing fragments replaces both with a single entry carrying its own idx', () => {
+    const blockResults: CodexBlockResult[] = [
+      { maxIdx: 5, partial: { characters: [char({ name: '林某', identity: [{ text: '出身贫寒', idx: 5 }], firstChapterIdx: 5 })], terms: [], relations: [] } },
+      { maxIdx: 30, partial: { characters: [char({ name: '林某', identity: [{ text: '自幼失怙', idx: 30 }], firstChapterIdx: 5 })], terms: [], relations: [] } },
+      { maxIdx: 88, partial: { characters: [char({ name: '林某', identity: [{ text: '出身贫寒，自幼失怙，后拜入青云门', idx: 88 }], firstChapterIdx: 5 })], terms: [], relations: [] } },
+    ];
+    const merged = mergeCodex(EMPTY_CODEX, blockResults);
+    const identity = merged.characters[0].identity;
+    // 只应存活一条：新碎片自身，带自己的 idx=88；两条被吸收的旧碎片都不应残留。
+    expect(identity).toHaveLength(1);
+    expect(identity[0]).toEqual({ text: '出身贫寒，自幼失怙，后拜入青云门', idx: 88 });
+    expect(identity.map((i) => i.text)).not.toContain('出身贫寒');
+    expect(identity.map((i) => i.text)).not.toContain('自幼失怙');
+  });
+
+  it('trailing punctuation preceded by whitespace still normalizes to match the punctuation-free form', () => {
+    const blockResults: CodexBlockResult[] = [
+      { maxIdx: 3, partial: { characters: [char({ name: '林某', identity: [{ text: '出身贫寒 。', idx: 3 }], firstChapterIdx: 3 })], terms: [], relations: [] } },
+      { maxIdx: 7, partial: { characters: [char({ name: '林某', identity: [{ text: '出身贫寒', idx: 7 }], firstChapterIdx: 3 })], terms: [], relations: [] } },
+    ];
+    const merged = mergeCodex(EMPTY_CODEX, blockResults);
+    expect(merged.characters[0].identity).toHaveLength(1);
+  });
 });

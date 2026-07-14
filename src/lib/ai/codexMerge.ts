@@ -29,9 +29,14 @@ function candidateNames(c: Character): string[] {
   return [c.name, ...c.aliases.map((a) => a.text)];
 }
 
-// 规范化：去首尾空白 + 去掉句末标点，用于判断"是否互为子串"，不用于最终展示文本。
+// 规范化：去首尾空白 + 去掉句末标点 + 再次去首尾空白，用于判断"是否互为子串"，
+// 不用于最终展示文本。二次 trim 是必须的：形如「出身贫寒 。」（标点前带空格）
+// 剥掉句末标点后会留下尾部空格，若不再 trim 一次就无法归一到「出身贫寒」。
 function normalizeForContainment(s: string): string {
-  return s.trim().replace(/[。！？，；、,.!?;]+$/u, '');
+  return s
+    .trim()
+    .replace(/[。！？，；、,.!?;]+$/u, '')
+    .trim();
 }
 
 /**
@@ -39,32 +44,35 @@ function normalizeForContainment(s: string): string {
  * 红线：保留更长者时，idx 取被保留的那条（更长的那条）自身的 idx——绝不取两者
  * 中的较小值，也绝不沿用被丢弃的较短碎片的 idx。更长的文本承载的信息就是在它
  * 自己的 idx 才被揭示的，去重不能让信息提前于其被揭示的时间点展示。
+ *
+ * 一条新碎片可能同时文本包含多条已存在的碎片（例如新碎片是多条旧碎片拼接后的
+ * 概括），此时必须把所有被包含的旧碎片都找出来并移除，只插入一次新碎片——
+ * 而不是只处理第一条匹配就 break，导致其余被包含的旧碎片沦为冗余的"未去重"条目。
  */
 function dedupeTextAtIdx(base: TextAtIdx[], incoming: TextAtIdx[]): TextAtIdx[] {
   let out = [...base];
   for (const x of incoming) {
     const xNorm = normalizeForContainment(x.text);
-    let absorbed = false;
-    let subsumedIndex = -1;
-    for (let i = 0; i < out.length; i++) {
-      const existingNorm = normalizeForContainment(out[i].text);
-      if (existingNorm === xNorm) {
-        absorbed = true; // 精确重复（含规范化后相同），丢弃新条目，保留旧条目原样
-        break;
-      }
-      if (xNorm.length > existingNorm.length && xNorm.includes(existingNorm)) {
-        subsumedIndex = i; // 新的更长，吸收旧的——但沿用新条目自身的 idx（下面直接用 x）
-        break;
-      }
-      if (existingNorm.length > xNorm.length && existingNorm.includes(xNorm)) {
-        absorbed = true; // 旧的更长，已经吸收了新的，丢弃新条目
-        break;
-      }
-    }
-    if (absorbed) continue;
-    if (subsumedIndex >= 0) {
-      out[subsumedIndex] = x; // 用长文本（自带正确 idx）整条替换被吸收的短文本
-      continue;
+
+    // 精确重复（含规范化后相同）→ 丢弃新条目，保留旧条目原样（fold 顺序中先出现的那条）
+    const exactDup = out.some((e) => normalizeForContainment(e.text) === xNorm);
+    if (exactDup) continue;
+
+    // 已存在某条严格更长且包含新条目 → 新条目已被吸收，直接丢弃
+    const dominatedByExisting = out.some((e) => {
+      const eNorm = normalizeForContainment(e.text);
+      return eNorm.length > xNorm.length && eNorm.includes(xNorm);
+    });
+    if (dominatedByExisting) continue;
+
+    // 新条目严格更长且包含某些旧条目 → 找出全部（可能不止一条）被吸收的旧条目，
+    // 一次性移除，只插入一次新条目（自带它自己的 idx）
+    const subsumed = out.filter((e) => {
+      const eNorm = normalizeForContainment(e.text);
+      return xNorm.length > eNorm.length && xNorm.includes(eNorm);
+    });
+    if (subsumed.length > 0) {
+      out = out.filter((e) => !subsumed.includes(e));
     }
     out.push(x);
   }
