@@ -18,7 +18,7 @@ function fnv1a(input: string): string {
 
 function sortedFragmentKey(arr: TextAtIdx[] | undefined): string {
   return (arr ?? [])
-    .map((x) => `${x.idx}:${x.text}`)
+    .map((x) => JSON.stringify({ idx: x.idx, text: x.text }))
     .sort()
     .join('|');
 }

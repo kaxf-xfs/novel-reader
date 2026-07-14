@@ -33,6 +33,15 @@ describe('characterFragmentHash', () => {
     const changedEvents = char({ identity: [{ text: 'A', idx: 1 }], events: [{ text: 'NEW-EVENT', idx: 5 }] });
     expect(characterFragmentHash(base)).not.toBe(characterFragmentHash(changedEvents));
   });
+
+  it('does not collide when fragment text contains delimiter-like characters that could fake-merge across boundaries', () => {
+    // Before the fix, `${idx}:${text}` joined by '|' let a single fragment
+    // {idx:1, text:"a|2:b"} and two fragments {idx:1,text:"a"},{idx:2,text:"b"}
+    // both serialize to "1:a|2:b" — a genuine hash collision on different content.
+    const oneFragment = char({ identity: [{ text: 'a|2:b', idx: 1 }] });
+    const twoFragments = char({ identity: [{ text: 'a', idx: 1 }, { text: 'b', idx: 2 }] });
+    expect(characterFragmentHash(oneFragment)).not.toBe(characterFragmentHash(twoFragments));
+  });
 });
 
 describe('termFragmentHash', () => {
