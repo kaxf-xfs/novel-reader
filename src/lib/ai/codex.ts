@@ -25,6 +25,10 @@ export interface Character {
   groups: NamedAtIdx[];
   firstChapterIdx: number;
   events?: TextAtIdx[];
+  /** 版本化整合简介（增量 8.5）；展示取 idx<=cutoff 中最新一条。 */
+  bio?: TextAtIdx[];
+  /** 代码计算的碎片指纹，仅供 codexPolish 判断是否需要重新润色，绝不进入 codexForCutoff 输出。 */
+  bioHash?: string;
 }
 
 export type TermCategory = '境界' | '势力' | '功法' | '地理' | '物品' | '其它';
@@ -35,6 +39,9 @@ export interface Term {
   /** 版本化释义；展示取 idx<=cutoff 中最新一条。 */
   def: TextAtIdx[];
   firstChapterIdx: number;
+  /** 版本化整合释义（增量 8.5）；展示取 idx<=cutoff 中最新一条。 */
+  gloss?: TextAtIdx[];
+  glossHash?: string;
 }
 
 export interface Relation {
@@ -57,6 +64,13 @@ function filterAtIdx<T extends { idx: number }>(arr: T[] | undefined, cutoff: nu
   return (arr ?? []).filter((x) => x.idx <= cutoff);
 }
 
+/** 版本化字段的展示归约：过滤 ≤cutoff 后只取最新一条（不是全部，也不是第一条）。 */
+function latestAtIdx<T extends { idx: number }>(arr: T[] | undefined, cutoff: number): T[] {
+  const visible = filterAtIdx(arr, cutoff);
+  if (!visible.length) return [];
+  return [visible.reduce((best, x) => (x.idx > best.idx ? x : best))];
+}
+
 /** 唯一的展示门：把裸 Codex（可能含未来数据）过滤成可安全展示的 Codex。 */
 export function codexForCutoff(codex: Codex, cutoff: number): Codex {
   const characters: Character[] = codex.characters
@@ -69,19 +83,20 @@ export function codexForCutoff(codex: Codex, cutoff: number): Codex {
       groups: filterAtIdx(c.groups, cutoff),
       firstChapterIdx: c.firstChapterIdx,
       events: filterAtIdx(c.events, cutoff),
+      bio: latestAtIdx(c.bio, cutoff),
     }));
 
   const visibleNames = new Set(characters.map((c) => c.name));
 
   const terms: Term[] = codex.terms
     .filter((t) => t.firstChapterIdx <= cutoff)
-    .map((t) => {
-      const visibleDefs = filterAtIdx(t.def, cutoff);
-      const latest = visibleDefs.length
-        ? visibleDefs.reduce((best, d) => (d.idx > best.idx ? d : best))
-        : undefined;
-      return { name: t.name, category: t.category, def: latest ? [latest] : [], firstChapterIdx: t.firstChapterIdx };
-    });
+    .map((t) => ({
+      name: t.name,
+      category: t.category,
+      def: latestAtIdx(t.def, cutoff),
+      firstChapterIdx: t.firstChapterIdx,
+      gloss: latestAtIdx(t.gloss, cutoff),
+    }));
 
   const relations: Relation[] = codex.relations.filter(
     (r) => r.idx <= cutoff && visibleNames.has(r.from) && visibleNames.has(r.to),

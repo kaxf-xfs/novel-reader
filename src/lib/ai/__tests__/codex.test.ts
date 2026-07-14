@@ -80,4 +80,43 @@ describe('codexForCutoff', () => {
   it('空 Codex 回退安全', () => {
     expect(codexForCutoff(EMPTY_CODEX, 5)).toEqual(EMPTY_CODEX);
   });
+
+  it('bio/gloss: shows the latest polished version whose idx <= cutoff, not all versions, not the first', () => {
+    const codex = baseCodex();
+    codex.characters[0] = {
+      ...codex.characters[0],
+      bio: [{ text: '早期简介', idx: 4 }, { text: '追加后的简介', idx: 12 }],
+      bioHash: 'should-never-appear-in-output',
+    };
+    const early = codexForCutoff(codex, 6);
+    expect(early.characters[0].bio).toEqual([{ text: '早期简介', idx: 4 }]);
+    const late = codexForCutoff(codex, 20);
+    expect(late.characters[0].bio).toEqual([{ text: '追加后的简介', idx: 12 }]);
+  });
+
+  it('bio falls back to [] when no polished version exists yet at or below cutoff (caller degrades to raw fragments)', () => {
+    const codex = baseCodex();
+    codex.characters[0] = { ...codex.characters[0], bio: [{ text: '晚出现的简介', idx: 50 }] };
+    const out = codexForCutoff(codex, 6);
+    expect(out.characters[0].bio).toEqual([]);
+  });
+
+  it('bioHash/glossHash never appear on the filtered output, even when present on the raw codex', () => {
+    const codex = baseCodex();
+    codex.characters[0] = { ...codex.characters[0], bio: [{ text: 'x', idx: 0 }], bioHash: 'SECRET-HASH' };
+    codex.terms[0] = { ...codex.terms[0], gloss: [{ text: 'y', idx: 0 }], glossHash: 'SECRET-HASH-2' };
+    const out = codexForCutoff(codex, 20);
+    expect(out.characters[0]).not.toHaveProperty('bioHash');
+    expect(out.terms[0]).not.toHaveProperty('glossHash');
+  });
+
+  it('gloss reuses the same latest-at-cutoff reduction as def', () => {
+    const codex = baseCodex();
+    codex.terms[0] = {
+      ...codex.terms[0],
+      gloss: [{ text: '早期释义', idx: 2 }, { text: '整合后的释义', idx: 9 }],
+    };
+    const out = codexForCutoff(codex, 5);
+    expect(out.terms[0].gloss).toEqual([{ text: '早期释义', idx: 2 }]);
+  });
 });
