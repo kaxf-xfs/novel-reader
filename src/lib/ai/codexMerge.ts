@@ -29,15 +29,44 @@ function candidateNames(c: Character): string[] {
   return [c.name, ...c.aliases.map((a) => a.text)];
 }
 
+// 规范化：去首尾空白 + 去掉句末标点，用于判断"是否互为子串"，不用于最终展示文本。
+function normalizeForContainment(s: string): string {
+  return s.trim().replace(/[。！？，；、,.!?;]+$/u, '');
+}
+
+/**
+ * 包含关系去重：新碎片的规范化文本若是已存在碎片的子串（或反之），只保留更长者。
+ * 红线：保留更长者时，idx 取被保留的那条（更长的那条）自身的 idx——绝不取两者
+ * 中的较小值，也绝不沿用被丢弃的较短碎片的 idx。更长的文本承载的信息就是在它
+ * 自己的 idx 才被揭示的，去重不能让信息提前于其被揭示的时间点展示。
+ */
 function dedupeTextAtIdx(base: TextAtIdx[], incoming: TextAtIdx[]): TextAtIdx[] {
-  const seen = new Set(base.map((x) => `${x.text} ${x.idx}`));
-  const out = [...base];
+  let out = [...base];
   for (const x of incoming) {
-    const key = `${x.text} ${x.idx}`;
-    if (!seen.has(key)) {
-      seen.add(key);
-      out.push(x);
+    const xNorm = normalizeForContainment(x.text);
+    let absorbed = false;
+    let subsumedIndex = -1;
+    for (let i = 0; i < out.length; i++) {
+      const existingNorm = normalizeForContainment(out[i].text);
+      if (existingNorm === xNorm) {
+        absorbed = true; // 精确重复（含规范化后相同），丢弃新条目，保留旧条目原样
+        break;
+      }
+      if (xNorm.length > existingNorm.length && xNorm.includes(existingNorm)) {
+        subsumedIndex = i; // 新的更长，吸收旧的——但沿用新条目自身的 idx（下面直接用 x）
+        break;
+      }
+      if (existingNorm.length > xNorm.length && existingNorm.includes(xNorm)) {
+        absorbed = true; // 旧的更长，已经吸收了新的，丢弃新条目
+        break;
+      }
     }
+    if (absorbed) continue;
+    if (subsumedIndex >= 0) {
+      out[subsumedIndex] = x; // 用长文本（自带正确 idx）整条替换被吸收的短文本
+      continue;
+    }
+    out.push(x);
   }
   return out;
 }

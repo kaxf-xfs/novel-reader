@@ -65,3 +65,35 @@ describe('mergeCodex', () => {
     expect(merged.characters.map((c) => c.name).sort()).toEqual(['小李', '老王']);
   });
 });
+
+describe('mergeCodex — containment near-dup guard', () => {
+  it('CRITICAL: when a longer fragment subsumes an earlier shorter one, the surviving text keeps its OWN idx — never the earlier (shorter) fragment\'s idx, never the minimum of the two', () => {
+    const blockResults: CodexBlockResult[] = [
+      { maxIdx: 10, partial: { characters: [char({ name: '林某', identity: [{ text: '出身贫寒的少年', idx: 10 }], firstChapterIdx: 10 })], terms: [], relations: [] } },
+      { maxIdx: 200, partial: { characters: [char({ name: '林某', identity: [{ text: '出身贫寒的少年，后来弑父夺得魔教教主之位', idx: 200 }], firstChapterIdx: 10 })], terms: [], relations: [] } },
+    ];
+    const merged = mergeCodex(EMPTY_CODEX, blockResults);
+    const identity = merged.characters[0].identity;
+    // 只应存活一条（长文本吸收短文本），且必须带长文本自身的 idx=200，不能是 10，也不能是二者的 min。
+    expect(identity).toHaveLength(1);
+    expect(identity[0]).toEqual({ text: '出身贫寒的少年，后来弑父夺得魔教教主之位', idx: 200 });
+  });
+
+  it('distinct-but-similar fragments (neither is a substring of the other) both survive', () => {
+    const blockResults: CodexBlockResult[] = [
+      { maxIdx: 5, partial: { characters: [char({ name: '林某', identity: [{ text: '出身贫寒', idx: 5 }], firstChapterIdx: 5 })], terms: [], relations: [] } },
+      { maxIdx: 30, partial: { characters: [char({ name: '林某', identity: [{ text: '自幼失怙', idx: 30 }], firstChapterIdx: 5 })], terms: [], relations: [] } },
+    ];
+    const merged = mergeCodex(EMPTY_CODEX, blockResults);
+    expect(merged.characters[0].identity.map((i) => i.text).sort()).toEqual(['出身贫寒', '自幼失怙']);
+  });
+
+  it('a fragment identical after normalization (whitespace/trailing punctuation only) still collapses to one, keeping the longer/later idx', () => {
+    const blockResults: CodexBlockResult[] = [
+      { maxIdx: 3, partial: { characters: [char({ name: '林某', identity: [{ text: '出身贫寒。', idx: 3 }], firstChapterIdx: 3 })], terms: [], relations: [] } },
+      { maxIdx: 7, partial: { characters: [char({ name: '林某', identity: [{ text: '出身贫寒', idx: 7 }], firstChapterIdx: 3 })], terms: [], relations: [] } },
+    ];
+    const merged = mergeCodex(EMPTY_CODEX, blockResults);
+    expect(merged.characters[0].identity).toHaveLength(1);
+  });
+});
