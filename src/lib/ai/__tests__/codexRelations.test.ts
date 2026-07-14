@@ -1,5 +1,5 @@
 import type { Character, Relation } from '../codex';
-import { buildGroupedRoster, isTreeKind, primaryGroup, UNGROUPED } from '../codexRelations';
+import { buildGroupedRoster, egoNetwork, isTreeKind, primaryGroup, UNGROUPED } from '../codexRelations';
 
 function char(over: Partial<Character>): Character {
   return { name: 'X', aliases: [], identity: [], groups: [], firstChapterIdx: 0, ...over };
@@ -101,5 +101,43 @@ describe('buildGroupedRoster', () => {
     // 且这一对不应该同时又出现在芯片里（树边与芯片互斥）。
     const allChips = section.nodes.flatMap((n) => n.chips);
     expect(allChips.find((c) => c.otherName === 'A' || c.otherName === 'B')).toBeUndefined();
+  });
+});
+
+describe('egoNetwork', () => {
+  it('places the focal node at the exact center', () => {
+    const characters = [char({ name: 'A' }), char({ name: 'B' })];
+    const relations: Relation[] = [{ from: 'A', to: 'B', kind: '师徒', idx: 1 }];
+    const { nodes } = egoNetwork('A', characters, relations, { width: 200, height: 200 });
+    const focal = nodes.find((n) => n.focal)!;
+    expect(focal.x).toBe(100);
+    expect(focal.y).toBe(100);
+    expect(focal.name).toBe('A');
+  });
+
+  it('caps direct neighbors at the given cap (default 8), never renders more', () => {
+    const characters = [char({ name: 'Focal' }), ...Array.from({ length: 12 }, (_, i) => char({ name: `N${i}` }))];
+    const relations: Relation[] = Array.from({ length: 12 }, (_, i) => ({ from: 'Focal', to: `N${i}`, kind: '结盟', idx: i }));
+    const { nodes } = egoNetwork('Focal', characters, relations, { width: 300, height: 300 });
+    expect(nodes.length).toBeLessThanOrEqual(9); // 焦点 1 + 最多 8 个邻居
+  });
+
+  it('deterministic: identical input produces identical output', () => {
+    const characters = [char({ name: 'A' }), char({ name: 'B' }), char({ name: 'C' })];
+    const relations: Relation[] = [
+      { from: 'A', to: 'B', kind: '师徒', idx: 1 },
+      { from: 'A', to: 'C', kind: '结盟', idx: 2 },
+    ];
+    const first = egoNetwork('A', characters, relations, { width: 200, height: 200 });
+    const second = egoNetwork('A', characters, relations, { width: 200, height: 200 });
+    expect(first).toEqual(second);
+  });
+
+  it('edges connect the focal node to each visible neighbor', () => {
+    const characters = [char({ name: 'A' }), char({ name: 'B' })];
+    const relations: Relation[] = [{ from: 'A', to: 'B', kind: '师徒', idx: 1 }];
+    const { edges } = egoNetwork('A', characters, relations, { width: 200, height: 200 });
+    expect(edges).toHaveLength(1);
+    expect(edges[0].kind).toBe('师徒');
   });
 });

@@ -136,3 +136,61 @@ function characterSubtitle(c: Character | undefined): string | undefined {
   if (!c) return undefined;
   return c.bio?.[0]?.text ?? c.identity?.[0]?.text;
 }
+
+export interface EgoNode {
+  name: string;
+  x: number;
+  y: number;
+  focal: boolean;
+}
+
+export interface EgoEdge {
+  kind: string;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+}
+
+const DEFAULT_EGO_CAP = 8;
+
+export function egoNetwork(
+  focalName: string,
+  characters: Character[],
+  relations: Relation[],
+  opts: { width: number; height: number; cap?: number },
+): { nodes: EgoNode[]; edges: EgoEdge[] } {
+  const { width, height, cap = DEFAULT_EGO_CAP } = opts;
+  const cx = width / 2;
+  const cy = height / 2;
+
+  const direct = relations.filter((r) => r.from === focalName || r.to === focalName);
+  const neighborName = (r: Relation) => (r.from === focalName ? r.to : r.from);
+  const charByName = new Map(characters.map((c) => [c.name, c]));
+
+  const sortedDirect = [...direct].sort((a, b) => {
+    const ca = charByName.get(neighborName(a));
+    const cb = charByName.get(neighborName(b));
+    const fa = ca?.firstChapterIdx ?? Number.MAX_SAFE_INTEGER;
+    const fb = cb?.firstChapterIdx ?? Number.MAX_SAFE_INTEGER;
+    if (fa !== fb) return fb - fa; // 最近登场（idx 较大）优先保留
+    return neighborName(a).localeCompare(neighborName(b));
+  });
+  const capped = sortedDirect.slice(0, cap);
+
+  const nodes: EgoNode[] = [{ name: focalName, x: cx, y: cy, focal: true }];
+  const radius = Math.min(width, height) / 2 - 32;
+  capped.forEach((r, i) => {
+    const angle = (2 * Math.PI * i) / Math.max(1, capped.length);
+    nodes.push({ name: neighborName(r), x: cx + radius * Math.cos(angle), y: cy + radius * Math.sin(angle), focal: false });
+  });
+
+  const nodeByName = new Map(nodes.map((n) => [n.name, n]));
+  const edges: EgoEdge[] = capped.map((r) => {
+    const focal = nodeByName.get(focalName)!;
+    const other = nodeByName.get(neighborName(r))!;
+    return { kind: r.kind, x1: focal.x, y1: focal.y, x2: other.x, y2: other.y };
+  });
+
+  return { nodes, edges };
+}
