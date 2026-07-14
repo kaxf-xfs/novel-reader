@@ -1,13 +1,17 @@
 import { FakeFileGateway, seedReader } from '../../../test-utils/fakes';
 import { InMemoryBookRepository } from '../../import/repository';
-import type { ChatMessage, ChatResult } from '../client';
-import { ensureCodex, __resetCodexLocks } from '../ensureCodex';
+import { AiError, type ChatMessage, type ChatResult } from '../client';
+import { CODEX_PROMPT_VERSION, ensureCodex, __resetCodexLocks } from '../ensureCodex';
 
 function fakeCodexChat(): jest.Mock<Promise<ChatResult>, [ChatMessage[], AbortSignal?]> {
   return jest.fn(async (_messages: ChatMessage[], _signal?: AbortSignal) => ({
     content: JSON.stringify({ characters: [{ name: '主角', identity: ['少年'] }], terms: [], relations: [] }),
     finishReason: 'stop',
   }));
+}
+
+function defaultPolishChat(): jest.Mock<Promise<ChatResult>, [ChatMessage[], AbortSignal?]> {
+  return jest.fn(async (_messages: ChatMessage[], _signal?: AbortSignal) => ({ content: '{}', finishReason: 'stop' }));
 }
 
 async function setup(chapterCount: number) {
@@ -27,7 +31,7 @@ describe('ensureCodex', () => {
     const summarizeChat = jest.fn(async () => 'S');
     const chat = fakeCodexChat();
     const res = await ensureCodex(
-      { chat, summarizeChat, fs, repo },
+      { chat, summarizeChat, polishChat: defaultPolishChat(), fs, repo },
       { book, chapters, cutoff: 19, model: 'm', autoOn: true },
     );
     expect(res.coveredUptoIdx).toBe(19);
@@ -45,7 +49,7 @@ describe('ensureCodex', () => {
     const summarizeChat = jest.fn(async () => 'S');
     const chat = fakeCodexChat();
     const res = await ensureCodex(
-      { chat, summarizeChat, fs, repo },
+      { chat, summarizeChat, polishChat: defaultPolishChat(), fs, repo },
       { book, chapters, cutoff: 9, model: 'm', autoOn: false },
     );
     expect(res.complete).toBe(false);
@@ -71,7 +75,7 @@ describe('ensureCodex', () => {
     });
 
     const first = await ensureCodex(
-      { chat, summarizeChat, fs, repo },
+      { chat, summarizeChat, polishChat: defaultPolishChat(), fs, repo },
       { book, chapters, cutoff: 9, model: 'm', autoOn: false },
     );
     expect(first.coveredUptoIdx).toBe(0); // 卡在缺口前，未被 bug 跳过纳入 idx 2
@@ -81,7 +85,7 @@ describe('ensureCodex', () => {
     await repo.putSummary({ bookId: 'b1', level: 0, idx: 1, model: 'm', promptVersion: 'v2', summary: 's1', createdAt: 1 });
 
     const second = await ensureCodex(
-      { chat, summarizeChat, fs, repo },
+      { chat, summarizeChat, polishChat: defaultPolishChat(), fs, repo },
       { book, chapters, cutoff: 9, model: 'm', autoOn: false },
     );
     // 缺口补上后，第二次调用应从 coveredUptoIdx+1=1 起连续纳入 1、2，越过原先卡住的位置。
@@ -105,7 +109,7 @@ describe('ensureCodex', () => {
     const summarizeChat = jest.fn(async () => 'S');
     const chat = fakeCodexChat(); // 会产出「主角」
     const res = await ensureCodex(
-      { chat, summarizeChat, fs, repo },
+      { chat, summarizeChat, polishChat: defaultPolishChat(), fs, repo },
       { book, chapters, cutoff: 9, model: 'NEW', autoOn: false },
     );
     expect(res.versionMismatch).toBe(true);
@@ -126,7 +130,7 @@ describe('ensureCodex', () => {
     const summarizeChat = jest.fn(async () => 'S');
     const chat = fakeCodexChat();
     const res = await ensureCodex(
-      { chat, summarizeChat, fs, repo },
+      { chat, summarizeChat, polishChat: defaultPolishChat(), fs, repo },
       { book, chapters, cutoff: 4, model: 'NEW', autoOn: false, forceRebuild: true },
     );
     expect(res.versionMismatch).toBe(false); // forceRebuild 视作从零开始，无「已存版本」可比
@@ -139,7 +143,7 @@ describe('ensureCodex', () => {
     const summarizeChat = jest.fn(async () => 'S');
     const chat = fakeCodexChat();
     await ensureCodex(
-      { chat, summarizeChat, fs, repo },
+      { chat, summarizeChat, polishChat: defaultPolishChat(), fs, repo },
       { book, chapters, cutoff: 119, model: 'm', autoOn: true },
     );
     expect(putSpy.mock.calls.length).toBeGreaterThan(1);
@@ -157,7 +161,7 @@ describe('ensureCodex', () => {
     });
     await expect(
       ensureCodex(
-        { chat, summarizeChat, fs, repo },
+        { chat, summarizeChat, polishChat: defaultPolishChat(), fs, repo },
         { book, chapters, cutoff: 119, model: 'm', autoOn: true, signal: ctrl.signal },
       ),
     ).rejects.toMatchObject({ kind: 'cancelled' });
@@ -182,7 +186,7 @@ describe('ensureCodex', () => {
     const summarizeChat = jest.fn(async () => 'S');
     const chat = fakeCodexChat();
     const res = await ensureCodex(
-      { chat, summarizeChat, fs, repo },
+      { chat, summarizeChat, polishChat: defaultPolishChat(), fs, repo },
       { book, chapters, cutoff: CHAPTER_COUNT - 1, model: 'm', autoOn: false },
     );
     expect(res.coveredUptoIdx).toBe(CHAPTER_COUNT - 1);
@@ -195,11 +199,121 @@ describe('ensureCodex', () => {
     const summarizeChat = jest.fn(async () => 'S');
     const chat = fakeCodexChat(); // 两次调用都会产出同一个「主角」
     const [a, b] = await Promise.all([
-      ensureCodex({ chat, summarizeChat, fs, repo }, { book, chapters, cutoff: 9, model: 'm', autoOn: true }),
-      ensureCodex({ chat, summarizeChat, fs, repo }, { book, chapters, cutoff: 9, model: 'm', autoOn: true }),
+      ensureCodex({ chat, summarizeChat, polishChat: defaultPolishChat(), fs, repo }, { book, chapters, cutoff: 9, model: 'm', autoOn: true }),
+      ensureCodex({ chat, summarizeChat, polishChat: defaultPolishChat(), fs, repo }, { book, chapters, cutoff: 9, model: 'm', autoOn: true }),
     ]);
     expect(b.codex.characters.filter((c) => c.name === '主角')).toHaveLength(1); // 串行执行下第二次是增量 no-op，不会产生重复
     expect(a.coveredUptoIdx).toBe(9);
     expect(b.coveredUptoIdx).toBe(9);
+  });
+});
+
+function fakePolishChat(): jest.Mock<Promise<ChatResult>, [ChatMessage[], AbortSignal?]> {
+  return jest.fn(async (_messages: ChatMessage[], _signal?: AbortSignal) => ({
+    content: JSON.stringify({ bios: [{ name: '主角', bio: '整合后的简介' }] }),
+    finishReason: 'stop',
+  }));
+}
+
+describe('ensureCodex — polish integration', () => {
+  it('runs polish once after catching up to cutoff (not per intermediate checkpoint)', async () => {
+    const { repo, fs, book, chapters } = await setup(120); // 8 blocks / 5 per checkpoint → 2 checkpoints
+    const summarizeChat = jest.fn(async () => 'S');
+    const chat = fakeCodexChat();
+    const polishChat = fakePolishChat();
+    await ensureCodex(
+      { chat, summarizeChat, polishChat, fs, repo },
+      { book, chapters, cutoff: 119, model: 'm', autoOn: true },
+    );
+    // 主角每块都会重新被抽取出来（同名合并），但润色只应该在最终追上 cutoff 后跑一次，
+    // 不是每个 checkpoint 跑一次——2 个 checkpoint 不应该产生 2 次或更多的润色调用。
+    expect(polishChat).toHaveBeenCalledTimes(1);
+  });
+
+  it('a fully caught-up book with a dirty entity gets polished when re-run, without needing forceRebuild', async () => {
+    const { repo, fs, book, chapters } = await setup(10);
+    const summarizeChat = jest.fn(async () => 'S');
+    const chat = fakeCodexChat();
+    const polishChat = fakePolishChat();
+    const first = await ensureCodex(
+      { chat, summarizeChat, polishChat, fs, repo },
+      { book, chapters, cutoff: 9, model: 'm', autoOn: true },
+    );
+    expect(first.codex.characters.find((c) => c.name === '主角')?.bio?.[0].text).toBe('整合后的简介');
+    expect(polishChat).toHaveBeenCalledTimes(1);
+
+    // 重新打开（没有新章节，但没有任何新脏实体——上一次已经润色过了）：不应该再次调用。
+    const second = await ensureCodex(
+      { chat, summarizeChat, polishChat, fs, repo },
+      { book, chapters, cutoff: 9, model: 'm', autoOn: true },
+    );
+    expect(polishChat).toHaveBeenCalledTimes(1); // 仍是 1 次，没有额外的空转润色
+    expect(second.coveredUptoIdx).toBe(9);
+  });
+
+  it('polish does not change coveredUptoIdx', async () => {
+    const { repo, fs, book, chapters } = await setup(10);
+    const summarizeChat = jest.fn(async () => 'S');
+    const chat = fakeCodexChat();
+    const polishChat = fakePolishChat();
+    const res = await ensureCodex(
+      { chat, summarizeChat, polishChat, fs, repo },
+      { book, chapters, cutoff: 9, model: 'm', autoOn: true },
+    );
+    expect(res.coveredUptoIdx).toBe(9); // 和没有润色时的行为一致，润色不推高也不压低覆盖进度
+  });
+
+  it('CODEX_PROMPT_VERSION is v2', () => {
+    expect(CODEX_PROMPT_VERSION).toBe('v2');
+  });
+
+  it('version-mismatch (v1 -> v2) does not wipe existing bio-less codex; catch-up polish still runs and adds bio without a forceRebuild', async () => {
+    const { repo, fs, book, chapters } = await setup(10);
+    await repo.putCodex({
+      bookId: 'b1', coveredUptoIdx: 9, model: 'm', promptVersion: 'v1',
+      json: JSON.stringify({
+        characters: [{ name: '老角色', aliases: [], identity: [{ text: '旧碎片', idx: 3 }], groups: [], firstChapterIdx: 0 }],
+        terms: [], relations: [],
+      }),
+      updatedAt: 1,
+    });
+    for (let i = 0; i <= 9; i++) {
+      await repo.putSummary({ bookId: 'b1', level: 0, idx: i, model: 'm', promptVersion: 'v2', summary: `s${i}`, createdAt: 1 });
+    }
+    const summarizeChat = jest.fn(async () => 'S');
+    const chat = jest.fn(async (): Promise<ChatResult> => ({ content: JSON.stringify({ characters: [], terms: [], relations: [] }), finishReason: 'stop' }));
+    const polishChat = jest.fn(async () => ({ content: JSON.stringify({ bios: [{ name: '老角色', bio: '整合简介' }] }), finishReason: 'stop' }));
+    const res = await ensureCodex(
+      { chat, summarizeChat, polishChat, fs, repo },
+      { book, chapters, cutoff: 9, model: 'm', autoOn: false },
+    );
+    expect(res.versionMismatch).toBe(true);
+    expect(res.codex.characters.find((c) => c.name === '老角色')?.bio?.[0].text).toBe('整合简介');
+  });
+
+  it('cancellation during polish does not partially persist (entity stays fully dirty, safe to retry)', async () => {
+    const { repo, fs, book, chapters } = await setup(10);
+    const summarizeChat = jest.fn(async () => 'S');
+    const chat = fakeCodexChat();
+    const ctrl = new AbortController();
+    const polishChat = jest.fn(async (): Promise<ChatResult> => {
+      ctrl.abort();
+      throw new AiError('cancelled', 'AI 已取消');
+    });
+    await expect(
+      ensureCodex(
+        { chat, summarizeChat, polishChat, fs, repo },
+        { book, chapters, cutoff: 9, model: 'm', autoOn: true, signal: ctrl.signal },
+      ),
+    ).rejects.toMatchObject({ kind: 'cancelled' });
+    const stored = await repo.getCodex('b1');
+    // 抽取阶段已经落过盘（extraction checkpoint），但润色没跑完不应该产生半更新的 bio/hash 不一致状态；
+    // 重新调用应该照常重新判定为脏并重试，不应报错或卡死。
+    const retryPolishChat = fakePolishChat();
+    const retry = await ensureCodex(
+      { chat, summarizeChat, polishChat: retryPolishChat, fs, repo },
+      { book, chapters, cutoff: 9, model: 'm', autoOn: true },
+    );
+    expect(retry.codex.characters.find((c) => c.name === '主角')?.bio?.[0].text).toBe('整合后的简介');
   });
 });

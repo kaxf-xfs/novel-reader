@@ -9,10 +9,11 @@ import type { BookRecord, BookRepository, ChapterRecord } from '../import/reposi
 import { AiError, type ChatMessage, type ChatResult } from './client';
 import { EMPTY_CODEX, type Codex } from './codex';
 import { extractCodex, type CodexBlock, type RosterEntry } from './codexExtract';
+import { isCharacterDirty, isTermDirty, polishCodex, type PolishChatFn } from './codexPolish';
 import { mergeCodex } from './codexMerge';
 import { ensureSummaries, type SummarizeFn } from './summarize';
 
-export const CODEX_PROMPT_VERSION = 'v1';
+export const CODEX_PROMPT_VERSION = 'v2';
 const BLOCK_SIZE = 15;
 const CHECKPOINT_EVERY_BLOCKS = 5;
 
@@ -20,6 +21,7 @@ type CodexChatFn = (messages: ChatMessage[], signal?: AbortSignal) => Promise<Ch
 
 export interface EnsureCodexDeps {
   chat: CodexChatFn;
+  polishChat: PolishChatFn;
   /** 用于 autoOn 路径下的章摘要保底（复用 ensureSummaries）。 */
   summarizeChat: SummarizeFn;
   fs: FileGateway;
@@ -129,7 +131,22 @@ export async function ensureCodex(deps: EnsureCodexDeps, params: EnsureCodexPara
       }
     }
 
+    // 只在追上 cutoff（没有更多章节可抽）时跑一次润色——不在每个中间 checkpoint
+    // 触发。这一个闭包同时覆盖两个退出点："没有新章节可抽"的早退分支，以及主
+    // 循环跑完后的尾部——两者都是"刚追上 cutoff"这同一个时刻。整个 pass 跑完
+    // 才持久化一次；取消时不落盘半完成的部分，下次重新判定脏实体、重新跑，不
+    // 会丢数据也不会不一致。
+    const runPolishIfDirty = async () => {
+      if (codex.characters.some(isCharacterDirty) || codex.terms.some(isTermDirty)) {
+        throwIfCancelled();
+        codex = await polishCodex({ chat: deps.polishChat }, { codex, signal, onProgress });
+        throwIfCancelled();
+        await persist(coveredUptoIdx); // coveredUptoIdx 保持不变——润色不改变"覆盖到哪一章"这个语义
+      }
+    };
+
     if (availableIdx.length === 0) {
+      await runPolishIfDirty();
       const complete = autoOn ? true : await isCoverageComplete(deps.repo, book.id, cutoff);
       return { codex, coveredUptoIdx, complete, versionMismatch };
     }
@@ -169,6 +186,8 @@ export async function ensureCodex(deps: EnsureCodexDeps, params: EnsureCodexPara
       throwIfCancelled();
       await persist(newUpto);
     }
+
+    await runPolishIfDirty();
 
     const complete = autoOn ? true : await isCoverageComplete(deps.repo, book.id, cutoff);
     return { codex, coveredUptoIdx, complete, versionMismatch };
