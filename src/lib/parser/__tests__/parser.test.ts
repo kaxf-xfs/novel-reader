@@ -314,6 +314,51 @@ describe('level detection', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Traditional Chinese chapter markers (繁体 話/節 vs 简体 话/节)
+//
+// Real-world regression: 地狱模式 (a scanlation-forum-sourced txt) uses
+// traditional "第106話" per-episode markers under a repeated simplified-ish
+// "第3章..." arc header. Before this fix, CHAPTER_RE's separator class only
+// contained the simplified 话/节, so every "第N話" line was invisible to the
+// parser and its content silently merged into the previous detected chapter.
+// ---------------------------------------------------------------------------
+
+describe('traditional Chinese chapter markers (繁体 話/節)', () => {
+  it('recognizes 第X話 (traditional 話) as a level-1 chapter', () => {
+    const text = '第一話 開始\n內容一。\n第二話 繼續\n內容二。\n第三話 結束\n內容三。';
+    const result = parseChapters(text);
+    expect(result.strategy).toBe('regex');
+    expect(result.chapters).toHaveLength(3);
+    result.chapters.forEach((c) => expect(c.level).toBe(1));
+  });
+
+  it('recognizes 第X節 (traditional 節) as a level-1 chapter', () => {
+    const text = '第一節 開始\n內容一。\n第二節 繼續\n內容二。\n第三節 結束\n內容三。';
+    const result = parseChapters(text);
+    expect(result.strategy).toBe('regex');
+    result.chapters.forEach((c) => expect(c.level).toBe(1));
+  });
+
+  it('splits a repeated arc-title block into per-episode chapters via 話 markers', () => {
+    // Mirrors 地狱模式's actual structure: the same arc header line reprinted
+    // before every episode, with the real per-episode boundary marked by a
+    // traditional 第N話 line immediately below it.
+    const text = [
+      '第3章學園都市篇',
+      '第106話 考試①',
+      '內容一。',
+      '第3章學園都市篇',
+      '第107話考試②',
+      '內容二。',
+    ].join('\n');
+    const result = parseChapters(text);
+    const titles = result.chapters.map((c) => c.title);
+    expect(titles).toContain('第106話 考試①');
+    expect(titles).toContain('第107話考試②');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Fixture: 昊天传 (UTF-8, ~687KB)
 // ---------------------------------------------------------------------------
 

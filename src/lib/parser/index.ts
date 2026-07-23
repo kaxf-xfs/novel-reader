@@ -68,11 +68,15 @@ export interface ParseResult {
 const NUM = '[0-9０-９零一二三四五六七八九十百千万两億]+';
 
 /**
- * Chapter-level line: 第X章, 第X回, 第X节, 第X话, 第X幕
+ * Chapter-level line: 第X章, 第X回, 第X节/節, 第X话/話, 第X幕
  * level = 1
- * (幕 = "act/scene", used by e.g. 琥珀之剑 — surfaced by real-device testing.)
+ * (幕 = "act/scene", used by e.g. 琥珀之剑 — surfaced by real-device testing.
+ * 話/節 = traditional-Chinese variants of 话/节, needed for scanlation-forum
+ * sourced txt files that mix simplified/traditional — surfaced by 地狱模式,
+ * whose "第106話" per-episode markers were otherwise invisible to this regex
+ * and got silently merged into the preceding detected chapter.)
  */
-const CHAPTER_RE = new RegExp(`^第(${NUM})[章回节话幕]`);
+const CHAPTER_RE = new RegExp(`^第(${NUM})[章回节话幕節話]`);
 
 /**
  * Volume-level line: 第X卷, 第X集, 第X部, 第X篇, 卷X
